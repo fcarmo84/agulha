@@ -50,39 +50,45 @@ export function fillPolys(mask, W, H, polys, value = 1) {
 }
 
 export class Grid {
-  constructor(rings, pad = 6) {
+  constructor(rings, pad = 6, res = RES) {
     let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
     for (const r of rings) for (const [x, y] of r) {
       if (x < xmin) xmin = x; if (x > xmax) xmax = x; if (y < ymin) ymin = y; if (y > ymax) ymax = y;
     }
-    this.x0 = xmin; this.y1 = ymax; this.pad = pad;
-    this.W = Math.ceil((xmax - xmin) / RES) + 2 * pad;
-    this.H = Math.ceil((ymax - ymin) / RES) + 2 * pad;
+    this.x0 = xmin; this.y1 = ymax; this.pad = pad; this.res = res;
+    this.W = Math.ceil((xmax - xmin) / res) + 2 * pad;
+    this.H = Math.ceil((ymax - ymin) / res) + 2 * pad;
     this.mask = new Uint8Array(this.W * this.H);
     fillPolys(this.mask, this.W, this.H, rings.map(r => r.map(([x, y]) => this.px(x, y))));
   }
-  px(x, y) { return [(x - this.x0) / RES + this.pad, (this.y1 - y) / RES + this.pad]; }
-  mm(c, r) { return [this.x0 + (c - this.pad) * RES, this.y1 - (r - this.pad) * RES]; }
+  px(x, y) { return [(x - this.x0) / this.res + this.pad, (this.y1 - y) / this.res + this.pad]; }
+  mm(c, r) { return [this.x0 + (c - this.pad) * this.res, this.y1 - (r - this.pad) * this.res]; }
   look(m, x, y) {
-    let c = Math.round((x - this.x0) / RES + this.pad), r = Math.round((this.y1 - y) / RES + this.pad);
+    let c = Math.round((x - this.x0) / this.res + this.pad), r = Math.round((this.y1 - y) / this.res + this.pad);
     c = Math.min(this.W - 1, Math.max(0, c)); r = Math.min(this.H - 1, Math.max(0, r));
     return m[r * this.W + c];
   }
 }
 
 function morph(m, W, H, iters, dilate) {
-  let a = m;
+  // so trabalha na caixa dos pixeis ligados (+ margem): rapido para partes pequenas em formas grandes
+  let r0 = H, r1 = -1, c0 = W, c1 = -1;
+  for (let r = 0; r < H; r++) { const o = r * W; for (let c = 0; c < W; c++) if (m[o + c]) { if (r < r0) r0 = r; if (r > r1) r1 = r; if (c < c0) c0 = c; if (c > c1) c1 = c; } }
+  if (r1 < 0) return new Uint8Array(W * H);
+  r0 = Math.max(0, r0 - iters - 1); r1 = Math.min(H - 1, r1 + iters + 1); c0 = Math.max(0, c0 - iters - 1); c1 = Math.min(W - 1, c1 + iters + 1);
+  let a = Uint8Array.from(m);
   for (let it = 0; it < iters; it++) {
-    const b = new Uint8Array(W * H);
-    for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
-      let v = dilate ? 0 : 1;
-      for (let dr = -1; dr <= 1 && (dilate ? !v : v); dr++) for (let dc = -1; dc <= 1; dc++) {
+    const b = Uint8Array.from(a);
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+      const i = r * W + c, v = a[i];
+      if (dilate ? v : !v) continue;
+      let hit = false;
+      for (let dr = -1; dr <= 1 && !hit; dr++) for (let dc = -1; dc <= 1; dc++) {
         const rr = r + dr, cc = c + dc;
-        const s = (rr < 0 || rr >= H || cc < 0 || cc >= W) ? (dilate ? 0 : 1) : a[rr * W + cc];
-        if (dilate && s) { v = 1; break; }
-        if (!dilate && !s) { v = 0; break; }
+        const sv = (rr < 0 || rr >= H || cc < 0 || cc >= W) ? (dilate ? 0 : 1) : a[rr * W + cc];
+        if (dilate ? sv : !sv) { hit = true; break; }
       }
-      b[r * W + c] = v;
+      if (hit) b[i] = dilate ? 1 : 0;
     }
     a = b;
   }
@@ -122,7 +128,7 @@ function chords(g, angles) {
       if (!mask[y * W + x]) continue;
       const dx = x - cx, dy = y - cy;
       const X = Math.round(ca * dx - sa * dy + c2), Y = Math.round(sa * dx + ca * dy + c2);
-      ch[y * W + x] = (X >= 0 && X < D && Y >= 0 && Y < D ? runs[Y * D + X] : 0) * RES;
+      ch[y * W + x] = (X >= 0 && X < D && Y >= 0 && Y < D ? runs[Y * D + X] : 0) * g.res;
     }
     out.push(ch);
   }
@@ -130,22 +136,31 @@ function chords(g, angles) {
 }
 
 function gaussBlur(src, W, H, s) {
-  const k = (Math.floor(s * 3) | 1), h = k >> 1;
-  const ker = new Float32Array(k); let sum = 0;
-  for (let i = 0; i < k; i++) { ker[i] = Math.exp(-((i - h) ** 2) / (2 * s * s)); sum += ker[i]; }
-  for (let i = 0; i < k; i++) ker[i] /= sum;
-  const tmp = new Float32Array(W * H), out = new Float32Array(W * H);
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    let v = 0;
-    for (let i = 0; i < k; i++) { const xx = Math.min(W - 1, Math.max(0, x + i - h)); v += src[y * W + xx] * ker[i]; }
-    tmp[y * W + x] = v;
-  }
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    let v = 0;
-    for (let i = 0; i < k; i++) { const yy = Math.min(H - 1, Math.max(0, y + i - h)); v += tmp[yy * W + x] * ker[i]; }
-    out[y * W + x] = v;
-  }
-  return out;
+  // aproximacao gaussiana por 3 caixas com somas acumuladas
+  const r = Math.max(1, Math.round((Math.sqrt(12 * s * s / 3 + 1) - 1) / 2));
+  let a = Float32Array.from(src), b = new Float32Array(W * H);
+  const passH = (inp, out) => {
+    for (let y = 0; y < H; y++) {
+      const o = y * W; let acc = 0;
+      for (let x = -r; x <= r; x++) acc += inp[o + Math.min(W - 1, Math.max(0, x))];
+      for (let x = 0; x < W; x++) {
+        out[o + x] = acc / (2 * r + 1);
+        acc += inp[o + Math.min(W - 1, x + r + 1)] - inp[o + Math.max(0, x - r)];
+      }
+    }
+  };
+  const passV = (inp, out) => {
+    for (let x = 0; x < W; x++) {
+      let acc = 0;
+      for (let y = -r; y <= r; y++) acc += inp[Math.min(H - 1, Math.max(0, y)) * W + x];
+      for (let y = 0; y < H; y++) {
+        out[y * W + x] = acc / (2 * r + 1);
+        acc += inp[Math.min(H - 1, y + r + 1) * W + x] - inp[Math.max(0, y - r) * W + x];
+      }
+    }
+  };
+  for (let k = 0; k < 3; k++) { passH(a, b); passV(b, a); }
+  return a;
 }
 
 function median(arr) {
@@ -161,7 +176,7 @@ function percentile(arr, p) {
 
 // ------------------------------------------------------------------ partes
 export function splitParts(g, P) {
-  const { W, H, mask } = g, N = W * H;
+  const { W, H, mask } = g, N = W * H, RES = g.res;
   const angs = []; for (let a = 0; a < 180; a += P.angle_step) angs.push(a);
   const C = chords(g, angs);
   const best = new Uint8Array(N), w = new Float32Array(N), anis = new Float32Array(N);
@@ -286,22 +301,35 @@ export function splitParts(g, P) {
 }
 
 // ------------------------------------------------------------------ linhas
-export function scan(rings, angDeg, spacing, phase = 0) {
+export function scan(rings, angDeg, spacing, phase = 0, vr = null) {
   const a = angDeg * D2R, c = Math.cos(a), s = Math.sin(a);
   const R = [[c, s], [-s, c]];
-  const E = rings.map(r => r.map(([x, y]) => [c * x + s * y, -s * x + c * y]));
+  const edges = [];
   let vmin = Infinity, vmax = -Infinity;
-  for (const r of E) for (const p of r) { if (p[1] < vmin) vmin = p[1]; if (p[1] > vmax) vmax = p[1]; }
+  for (const r of rings) {
+    const n = r.length;
+    let px = c * r[n - 1][0] + s * r[n - 1][1], pv = -s * r[n - 1][0] + c * r[n - 1][1];
+    for (let i = 0; i < n; i++) {
+      const u = c * r[i][0] + s * r[i][1], v = -s * r[i][0] + c * r[i][1];
+      if (pv !== v) edges.push(pv < v ? [pv, v, px, u] : [v, pv, u, px]);
+      if (v < vmin) vmin = v; if (v > vmax) vmax = v;
+      px = u; pv = v;
+    }
+  }
+  edges.sort((p, q) => p[0] - q[0]);
   let v = Math.floor((vmin - phase) / spacing) * spacing + phase + spacing / 2;
-  const rows = [];
-  while (v < vmax) {
-    const xs = [];
-    for (const r of E) {
-      const n = r.length;
-      for (let i = 0; i < n; i++) {
-        const A = r[i], B = r[(i + 1) % n];
-        if ((A[1] > v) !== (B[1] > v)) xs.push(A[0] + (v - A[1]) / (B[1] - A[1]) * (B[0] - A[0]));
-      }
+  let lo = vmin, hi = vmax;
+  if (vr) { lo = Math.max(lo, vr[0]); hi = Math.min(hi, vr[1]); if (v < lo) v += Math.floor((lo - v) / spacing) * spacing; }
+  const rows = [], active = []; let ei = 0;
+  const xs = [];
+  for (; v < hi; v += spacing) {
+    if (v < lo) continue;
+    while (ei < edges.length && edges[ei][0] <= v) active.push(edges[ei++]);
+    xs.length = 0;
+    for (let k = active.length - 1; k >= 0; k--) {
+      const e = active[k];
+      if (e[1] <= v) { active[k] = active[active.length - 1]; active.pop(); continue; }
+      if (e[0] <= v) xs.push(e[2] + (v - e[0]) / (e[1] - e[0]) * (e[3] - e[2]));
     }
     if (xs.length) {
       xs.sort((p, q) => p - q);
@@ -309,17 +337,32 @@ export function scan(rings, angDeg, spacing, phase = 0) {
       for (let k = 0; k + 1 < xs.length; k += 2) if (xs[k + 1] - xs[k] > 0.05) segs.push([xs[k], xs[k + 1]]);
       if (segs.length) rows.push([v, segs]);
     }
-    v += spacing;
   }
   return { rows, R };
 }
+// pontos (mm) de uma mascara, amostrados, para calcular extensoes rodadas
+function maskPoints(g, m) {
+  const pts = [], st = Math.max(1, Math.round(Math.sqrt(g.W * g.H) / 400));
+  for (let r = 0; r < g.H; r += st) { const o = r * g.W; for (let c = 0; c < g.W; c += st) if (m[o + c]) pts.push(g.mm(c, r)); }
+  return pts;
+}
+// extensao (u, v) desses pontos no referencial rodado de 'ang'
+function partExtent(pts, angDeg, margin) {
+  const a = angDeg * D2R, c = Math.cos(a), s = Math.sin(a);
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (const [x, y] of pts) { const u = c * x + s * y, v = -s * x + c * y; if (u < u0) u0 = u; if (u > u1) u1 = u; if (v < v0) v0 = v; if (v > v1) v1 = v; }
+  return [u0 - margin, u1 + margin, v0 - margin, v1 + margin];
+}
 const toXY = (R, u, v) => [R[0][0] * u + R[1][0] * v, R[0][1] * u + R[1][1] * v]; // R^T (u,v)
 
-function cutRows(rows, R, g, m, minlen = 0.25) {
-  const step = RES / 2, out = [];
+function cutRows(rows, R, g, m, minlen = 0.25, ext = null) {
+  const step = g.res / 2, out = [];
   for (const [v, segs] of rows) {
+    if (ext && (v < ext[2] || v > ext[3])) continue;
     const pieces = [];
-    for (const [u0, u1] of segs) {
+    for (let [u0, u1] of segs) {
+      const U0 = u0, U1 = u1;
+      if (ext) { if (u1 < ext[0] || u0 > ext[1]) continue; u0 = Math.max(u0, ext[0]); u1 = Math.min(u1, ext[1]); }
       const n = Math.max(2, Math.floor((u1 - u0) / step) + 1);
       const us = []; for (let k = 0; k < n; k++) us.push(Math.min(u1, u0 + k * step));
       if (us[us.length - 1] < u1 - 1e-9 && n > 1) { /* ultimo ponto ~u1 */ }
@@ -330,7 +373,7 @@ function cutRows(rows, R, g, m, minlen = 0.25) {
         if (!ok && start >= 0) {
           const a = start, b = k - 1;
           const ua = a === 0 ? u0 : us[a], ub = b === n - 1 ? u1 : us[b];
-          if (ub - ua >= minlen) pieces.push([ua, ub, a === 0, b === n - 1]);
+          if (ub - ua >= minlen) pieces.push([ua, ub, a === 0 && u0 === U0, b === n - 1 && u1 === U1]);
           start = -1;
         }
       }
@@ -397,7 +440,7 @@ function tatami(rows, R, P) {
       let line;
       if (u1 - u0 <= L * 1.6) line = [u0, u1];
       else {
-        const off = (i % 3) * L / 3; line = [u0];
+        const off = ((((Math.round(v / (P.fill_spacing / (P.density || 1))) % 3) + 3) % 3)) * L / 3; line = [u0];
         for (let u = Math.floor((u0 - off) / L) * L + off; u < u1; u += L) if (u > u0 + 0.8 && u < u1 - 0.8) line.push(u);
         line.push(u1);
       }
@@ -427,10 +470,11 @@ function underlay(rows, R, P) {
   return blocks;
 }
 
-function refineAngle(rings, g, m, a0) {
+function refineAngle(rings, g, m, a0, mp) {
   const cost = (a) => {
-    const { rows, R } = scan(rings, a, 0.4);
-    const L = []; for (const [, ps] of cutRows(rows, R, g, m)) for (const p of ps) L.push(p[1] - p[0]);
+    const ext = partExtent(mp, a, 3 * g.res);
+    const { rows, R } = scan(rings, a, Math.max(0.4, g.res * 2), 0, [ext[2], ext[3]]);
+    const L = []; for (const [, ps] of cutRows(rows, R, g, m, 0.25, ext)) for (const p of ps) L.push(p[1] - p[0]);
     if (!L.length) return 1e9;
     return median(L) + 0.01 * L.reduce((s, x) => s + x, 0) / L.length;
   };
@@ -446,7 +490,10 @@ function refineAngle(rings, g, m, a0) {
 
 // ------------------------------------------------------------------ regiao
 export function digitizeRegion(rings, P, info) {
-  const g = new Grid(rings);
+  // resolucao da analise: 0.1 mm em formas normais, mais grossa em areas grandes (~1.2 Mpx no maximo)
+  let bx0 = Infinity, bx1 = -Infinity, by0 = Infinity, by1 = -Infinity;
+  for (const [x, y] of rings[0]) { if (x < bx0) bx0 = x; if (x > bx1) bx1 = x; if (y < by0) by0 = y; if (y > by1) by1 = y; }
+  const g = new Grid(rings, 6, Math.max(RES, Math.sqrt((bx1 - bx0) * (by1 - by0) / 1.2e6)));
   const { W, H } = g;
   // 1) traco curvo simples (S, C, O...): cetim rotativo que acompanha a curva
   if (P.curvas !== false) {
@@ -457,38 +504,58 @@ export function digitizeRegion(rings, P, info) {
       if (ul && ul.length > 1) blocks.push({ pts: ul, kind: 'base', part: 1 });
       blocks.push({ pts: turningSatin(col, P), kind: 'cetim', part: 1 });
       const part = { id: 1, ang: 0, mask: g.mask, blocks, satin: true, w: col.wmed, curva: true, rails: col.rails };
-      if (info) info.push({ grid: g, labels: null, parts: [part] });
+      if (info) info.push({ grid: g, labels: g.mask, parts: [part] });
       return sequence([part], g, P);
     }
   }
   // 2) caso geral: dividir em partes com direcao fixa
   const { L, angles } = splitParts(g, P);
   const parts = [];
-  const gmaskEroded = erode(g.mask, W, H, 3);
+  const gmaskEroded = erode(g.mask, W, H, Math.max(1, Math.round(3 * RES / g.res)));
+  // 1.a passagem: direcao e largura de cada parte
+  const ov = Math.max(1, Math.round(P.overlap_px * RES / g.res));
+  const cand = [];
   for (let [pid, a] of angles) {
-    const m = new Uint8Array(W * H); for (let i = 0; i < m.length; i++) m[i] = L[i] === pid ? 1 : 0;
-    a = refineAngle(rings, g, m, a);
-    const big = and(dilate(m, W, H, P.overlap_px), g.mask);
-    const small = and(erode(m, W, H, 3), gmaskEroded);
-    const pr = scan(rings, a, 0.5);
-    const probe = cutRows(pr.rows, pr.R, g, m);
-    const Wd = []; for (const [, ps] of probe) for (const p of ps) Wd.push(p[1] - p[0]);
+    const m = new Uint8Array(W * H); let area = 0;
+    for (let i = 0; i < m.length; i++) if (L[i] === pid) { m[i] = 1; area++; }
+    const mp = maskPoints(g, m);
+    a = refineAngle(rings, g, m, a, mp);
+    const ea = partExtent(mp, a, (ov + 2) * g.res);
+    const pr = scan(rings, a, 0.5, 0, [ea[2], ea[3]]);
+    const Wd = []; for (const [, ps] of cutRows(pr.rows, pr.R, g, m, 0.25, ea)) for (const p of ps) Wd.push(p[1] - p[0]);
     if (!Wd.length) Wd.push(0);
-    const isSatin = percentile(Wd, 90) <= P.satin_max;
-    const wm = median(Wd);
+    cand.push({ pid, a, m, mp, area, satin: percentile(Wd, 90) <= P.satin_max, wm: median(Wd) });
+  }
+  // as partes de enchimento (tatami) da mesma forma juntam-se numa so, com uma so direcao:
+  // num enchimento largo a direcao nao precisa de seguir o traco e assim nao ha costuras
+  const tat = cand.filter(c => !c.satin);
+  let work = cand.filter(c => c.satin);
+  if (tat.length) {
+    const main = tat.reduce((x, y) => (y.area > x.area ? y : x));
+    const m = new Uint8Array(W * H);
+    for (const t of tat) for (let i = 0; i < m.length; i++) if (t.m[i]) { m[i] = 1; L[i] = main.pid; }
+    const mp = tat.length > 1 ? maskPoints(g, m) : main.mp;
+    work.push({ pid: main.pid, a: main.a, m, mp, satin: false, wm: Math.max(...tat.map(t => t.wm)) });
+  }
+  // 2.a passagem: pontos
+  for (const c of work) {
+    const { pid, a, m, mp, wm } = c, isSatin = c.satin;
+    const big = and(dilate(m, W, H, ov), g.mask);
+    const small = and(erode(m, W, H, Math.max(1, Math.round(3 * RES / g.res))), gmaskEroded);
+    const ea = partExtent(mp, a, (ov + 2) * g.res), eb = partExtent(mp, a + 90, (ov + 2) * g.res);
     const blocks = [];
     if (wm >= 1.0) {
       const usp = (!isSatin || wm > 2.5) ? 1.8 : Math.max(0.8, wm * 0.55);
-      const u = scan(rings, a + 90, usp, usp / 2);
-      for (const b of underlay(cutRows(u.rows, u.R, g, small, 0.6), u.R, P)) blocks.push({ pts: b, kind: 'base' });
+      const u = scan(rings, a + 90, usp, usp / 2, [eb[2], eb[3]]);
+      for (const b of underlay(cutRows(u.rows, u.R, g, small, 0.6, eb), u.R, P)) blocks.push({ pts: b, kind: 'base' });
     }
     if (isSatin) {
       const sp = (wm < 1.2 ? P.satin_spacing_fino : P.satin_spacing) / P.density / 2;
-      const r = scan(rings, a, sp);
-      for (const b of satin(cutRows(r.rows, r.R, g, big), r.R, P)) blocks.push({ pts: b, kind: 'cetim' });
+      const r = scan(rings, a, sp, 0, [ea[2], ea[3]]);
+      for (const b of satin(cutRows(r.rows, r.R, g, big, 0.25, ea), r.R, P)) blocks.push({ pts: b, kind: 'cetim' });
     } else {
-      const r = scan(rings, a, P.fill_spacing / P.density);
-      for (const b of tatami(cutRows(r.rows, r.R, g, big), r.R, P)) blocks.push({ pts: b, kind: 'tatami' });
+      const r = scan(rings, a, P.fill_spacing / P.density, 0, [ea[2], ea[3]]);
+      for (const b of tatami(cutRows(r.rows, r.R, g, big, 0.25, ea), r.R, P)) blocks.push({ pts: b, kind: 'tatami' });
     }
     for (const b of blocks) b.part = pid;
     parts.push({ id: pid, ang: a, mask: m, blocks, satin: isSatin, w: wm });
@@ -500,7 +567,7 @@ export function digitizeRegion(rings, P, info) {
 function travelOk(g, sewn, a, b) {
   const d = dist(a, b);
   if (d < 0.05) return true;
-  const n = Math.max(2, Math.floor(d / (RES / 2)));
+  const n = Math.max(2, Math.floor(d / (g.res / 2)));
   for (let k = 0; k < n; k++) {
     const t = k / (n - 1), x = a[0] + (b[0] - a[0]) * t, y = a[1] + (b[1] - a[1]) * t;
     const near = t * d < 0.25 || (1 - t) * d < 0.25;
@@ -521,35 +588,45 @@ class Heap {
   get size() { return this.a.length; }
 }
 
-// caminho por dentro da letra (grelha 0.3 mm) evitando zonas ja bordadas
+// caminho por dentro da letra (grelha ~0.3 mm) evitando zonas ja bordadas.
+// So procura numa janela a volta das duas pontas (o caminho nunca passa de 25 mm).
 function route(g, sewn, a, b, cell = 0.3, maxSewn = 1.0) {
-  const f = Math.round(cell / RES), { W, H } = g;
-  const w = Math.floor(W / f), h = Math.floor(H / f);
+  const { W, H } = g;
+  cell = Math.max(cell, 2 * g.res);
+  const f = Math.max(1, Math.round(cell / g.res));
+  const [ax, ay] = g.px(a[0], a[1]), [bx, by] = g.px(b[0], b[1]);
+  const mpx = Math.ceil(8 / g.res);
+  const c0 = Math.max(0, Math.floor(Math.min(ax, bx)) - mpx), c1 = Math.min(W - 1, Math.ceil(Math.max(ax, bx)) + mpx);
+  const r0 = Math.max(0, Math.floor(Math.min(ay, by)) - mpx), r1 = Math.min(H - 1, Math.ceil(Math.max(ay, by)) + mpx);
+  const w = Math.floor((c1 - c0 + 1) / f), h = Math.floor((r1 - r0 + 1) / f);
+  if (w < 2 || h < 2) return null;
   const inner = new Uint8Array(w * h), done = new Uint8Array(w * h);
-  for (let r = 0; r < h * f; r++) for (let c = 0; c < w * f; c++) {
-    const j = ((r / f) | 0) * w + ((c / f) | 0);
-    if (g.inner[r * W + c]) inner[j] = 1;
-    if (sewn[r * W + c]) done[j] = 1;
-  }
-  const cellOf = (p) => { const [X, Y] = g.px(p[0], p[1]); return [Math.min(h - 1, Math.max(0, (Y / f) | 0)), Math.min(w - 1, Math.max(0, (X / f) | 0))]; };
-  const okCells = []; for (let j = 0; j < w * h; j++) if (inner[j]) okCells.push(j);
-  if (!okCells.length) return null;
+  for (let r = 0; r < h * f; r++) { const gr = r0 + r; if (gr > r1) break; for (let c = 0; c < w * f; c++) {
+    const gc = c0 + c, j = ((r / f) | 0) * w + ((c / f) | 0), gi = gr * W + gc;
+    if (g.inner[gi]) inner[j] = 1;
+    if (sewn[gi]) done[j] = 1;
+  } }
+  const cellOf = (X, Y) => [Math.min(h - 1, Math.max(0, ((Y - r0) / f) | 0)), Math.min(w - 1, Math.max(0, ((X - c0) / f) | 0))];
   const snap = ([r, c]) => {
     if (inner[r * w + c]) return r * w + c;
-    let bj = -1, bd = Infinity;
-    for (const j of okCells) { const d = Math.max(Math.abs(((j / w) | 0) - r), Math.abs((j % w) - c)); if (d < bd) { bd = d; bj = j; } }
-    return bd * cell <= 1.2 ? bj : null;
+    const rad = Math.ceil(1.2 / cell); let bj = null, bd = Infinity;
+    for (let dr = -rad; dr <= rad; dr++) for (let dc = -rad; dc <= rad; dc++) {
+      const rr = r + dr, cc = c + dc; if (rr < 0 || rr >= h || cc < 0 || cc >= w || !inner[rr * w + cc]) continue;
+      const d = Math.max(Math.abs(dr), Math.abs(dc)); if (d < bd) { bd = d; bj = rr * w + cc; }
+    }
+    return bj;
   };
-  const s = snap(cellOf(a)), t = snap(cellOf(b));
+  const s = snap(cellOf(ax, ay)), t = snap(cellOf(bx, by));
   if (s === null || t === null) return null;
   done[s] = 0; done[t] = 0;
   const D = new Float64Array(w * h).fill(Infinity), prev = new Int32Array(w * h).fill(-1);
+  const limit = (25 / cell) * 1.5 + 12 * (maxSewn / cell + 2);
   D[s] = 0; const pq = new Heap(); pq.push([0, s]);
   const nb8 = [[-1, 0, 1], [1, 0, 1], [0, -1, 1], [0, 1, 1], [-1, -1, 1.414], [-1, 1, 1.414], [1, -1, 1.414], [1, 1, 1.414]];
   while (pq.size) {
     const [d, u] = pq.pop();
     if (u === t) break;
-    if (d > D[u]) continue;
+    if (d > D[u] || d > limit) continue;
     const ur = (u / w) | 0, uc = u % w;
     for (const [dy, dx, c] of nb8) {
       const vr = ur + dy, vc = uc + dx;
@@ -564,7 +641,7 @@ function route(g, sewn, a, b, cell = 0.3, maxSewn = 1.0) {
   cells.reverse();
   let ns = 0; for (const c of cells) if (done[c]) ns++;
   if (ns * cell > maxSewn || cells.length * cell > 25) return null;
-  const tomm = (j) => g.mm(((j % w) + 0.5) * f, (((j / w) | 0) + 0.5) * f);
+  const tomm = (j) => g.mm(c0 + ((j % w) + 0.5) * f, r0 + (((j / w) | 0) + 0.5) * f);
   return [a, ...cells.slice(1, -1).map(tomm), b];
 }
 
@@ -666,7 +743,8 @@ export function toCommands(colorGroups, P) {
         pts.push(p);
       }
       const firstOfColor = cmds.length === 0 || cmds[cmds.length - 1][0] === 'C';
-      if (cur && !firstOfColor && (b.connect || dist(cur, pts[0]) <= 10)) {
+      const near = dist(cur || [1e9, 1e9], pts[0]);
+      if (cur && !firstOfColor && ((b.connect && near <= P.run_len * 10 * 1.6) || near <= 10)) {
         for (const p of pts) cmds.push(['S', p[0], p[1]]);
       } else {
         if (cur && !firstOfColor) lock(cmds, cur);
@@ -714,33 +792,41 @@ export function groupRegions(rings) {
   return regs;
 }
 
-// shapes: [{color:[r,g,b], rings:[[[x,y],...]]}] em mm, y para cima. Devolve {cmds, info, groups}
+// shapes: [{color:[r,g,b], rings:[[[x,y],...]]}] em mm, y para cima. Agrupa por cor exata.
 export function digitize(shapes, P = {}, onProgress) {
-  P = { ...PARAM, ...P };
   const byCol = new Map();
   for (const s of shapes) {
     const k = s.color.join(',');
     if (!byCol.has(k)) byCol.set(k, { color: s.color, rings: [] });
     byCol.get(k).rings.push(...s.rings);
   }
+  return digitizeGroups([...byCol.values()], P, onProgress);
+}
+
+// colorGroups: [{color, name, rings}] pela ordem de bordado. Devolve {cmds, info, groups}
+export function digitizeGroups(colorGroups, P = {}, onProgress) {
+  P = { ...PARAM, ...P };
   const groups = [], info = [];
-  const allRegs = [...byCol.values()].map(c => groupRegions(c.rings));
-  const total = allRegs.reduce((s, r) => s + r.length, 0); let done = 0;
-  [...byCol.values()].forEach((col, ci) => {
+  const allRegs = colorGroups.map(c => groupRegions(c.rings));
+  const total = allRegs.reduce((s, r) => s + r.length, 0) || 1; let done = 0;
+  let cur = null;
+  colorGroups.forEach((col, ci) => {
     const regs = allRegs[ci];
     regs.sort((a, b) => {
       const ka = -Math.round(Math.max(...a[0].map(p => p[1])) / 4), kb = -Math.round(Math.max(...b[0].map(p => p[1])) / 4);
       return ka - kb || Math.min(...a[0].map(p => p[0])) - Math.min(...b[0].map(p => p[0]));
     });
+    const i0 = info.length;
     let per = regs.map(reg => { const r = digitizeRegion(reg, P, info); done++; onProgress && onProgress(done / total); return r; }).filter(b => b.length);
-    const blocks = []; let cur = null;
+    for (let k = i0; k < info.length; k++) info[k].color = ci;
+    const blocks = [];
     while (per.length) {
       let nxt = per[0];
       if (cur) nxt = per.reduce((a, b) => dist(cur, a[0].pts[0]) <= dist(cur, b[0].pts[0]) ? a : b);
       per = per.filter(x => x !== nxt); blocks.push(...nxt); cur = nxt[nxt.length - 1].pts.at(-1);
     }
-    groups.push({ color: col.color, blocks });
+    groups.push({ color: col.color, name: col.name, blocks });
   });
-  const cmds = toCommands(groups, P);
+  const cmds = toCommands(groups.filter(g => g.blocks.length), P);
   return { cmds, info, groups };
 }

@@ -1,10 +1,11 @@
 import { readPDF, readSVG } from './vetor.js';
-import { digitize } from './motor.js';
+import { Grid } from './motor.js';
 import { writeDST, readDST, stats } from './dst.js';
+import { run as runLocal } from './trabalho.js';
 import { drawStitches, drawDirections, drawPath } from './visual.js';
 
 const $ = (s) => document.querySelector(s);
-const state = { shapes: null, natural: null, name: 'bordado', result: null, view: 'bordado', dstOnly: null };
+const state = { shapes: null, natural: null, name: 'bordado', result: null, view: 'bordado', dstOnly: null, order: null, enabled: {} };
 
 const TECIDOS = {
   normal: { density: 1.0 },
@@ -16,7 +17,27 @@ const AVISOS = {
   texto: 'O PDF tem texto que não está convertido em curvas e foi ignorado. No Corel, selecione o texto, use <b>Objeto → Converter em curvas</b> (Ctrl+Q) e exporte de novo.',
   contornos: 'Há linhas só com contorno (sem preenchimento) e foram ignoradas. Para bordar uma linha, use <b>Converter contorno em objeto</b> (Ctrl+Shift+Q) no Corel.',
   imagem: 'O ficheiro tem imagens (bitmap). Só as formas vetoriais são bordadas.',
+  gradiente: 'O ficheiro tem gradientes ou padrões, que não se bordam. Use cores sólidas.',
 };
+
+// ------------------------------------------------------------------ calculo em segundo plano
+let worker = null, reqId = 0;
+const pending = new Map();
+try {
+  worker = new Worker(new URL('./trabalho.js', import.meta.url), { type: 'module' });
+  worker.onmessage = (e) => {
+    const p = pending.get(e.data.id); if (!p) return;
+    if (e.data.progress !== undefined) { p.onProgress(e.data.progress); return; }
+    pending.delete(e.data.id);
+    e.data.error ? p.reject(new Error(e.data.error)) : p.resolve(e.data.result);
+  };
+  worker.onerror = () => { worker = null; };
+} catch (e) { worker = null; }
+function compute(job, onProgress) {
+  if (!worker) return new Promise((res) => setTimeout(() => res(runLocal(job, onProgress)), 20));
+  const id = ++reqId;
+  return new Promise((resolve, reject) => { pending.set(id, { resolve, reject, onProgress }); worker.postMessage({ id, ...job }); });
+}
 
 // ------------------------------------------------------------------ ficheiros
 async function openFile(file) {
@@ -45,6 +66,7 @@ function loadShapes(shapes, warnings) {
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (const s of shapes) for (const r of s.rings) for (const [x, y] of r) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
   state.shapes = shapes; state.natural = { x0, x1, y0, y1, w: x1 - x0, h: y1 - y0 }; state.warnings = warnings;
+  state.order = null; state.enabled = {};
   $('#largura').value = Math.round(state.natural.w * 10) / 10;
   syncAltura();
   $('#passo2').hidden = false;
@@ -58,31 +80,69 @@ function syncAltura() {
 }
 
 // ------------------------------------------------------------------ gerar
-let busy = false, again = false;
+let busy = false, again = false, lastId = 0;
 async function generate() {
   if (!state.shapes) return;
   if (busy) { again = true; return; }
-  busy = true;
+  busy = true; const my = ++lastId;
   setStatus('A calcular pontos e direções…'); $('#descarregar').disabled = true;
-  await new Promise(r => setTimeout(r, 30));
   try {
     const n = state.natural, w = parseFloat($('#largura').value) || n.w;
     const k = w / n.w, cx = (n.x0 + n.x1) / 2, cy = (n.y0 + n.y1) / 2;
-    const shapes = state.shapes.map(s => ({ color: s.color, rings: s.rings.map(r => r.map(([x, y]) => [(x - cx) * k, (y - cy) * k])) }));
+    const T = (rs) => rs.map(r => r.map(([x, y]) => [(x - cx) * k, (y - cy) * k]));
+    const shapes = state.shapes.map(s => ({ color: s.color, name: s.name || null, rings: T(s.rings), clips: (s.clips || []).map(T) }));
     const P = TECIDOS[$('#tecido').value] || {};
     const t0 = performance.now();
-    state.result = digitize(shapes, P);
+    const r = await compute({ shapes, P, order: state.order, enabled: state.enabled },
+      (p) => setStatus(`A calcular pontos e direções… ${Math.round(p * 100)} %`));
+    if (my !== lastId) return;
+    for (const reg of r.info) Object.setPrototypeOf(reg.grid, Grid.prototype);
+    state.result = r; state.meta = r.meta; state.order = r.seq;
+    for (const m of r.meta) if (state.enabled[m.key] === undefined) state.enabled[m.key] = true;
     const avisos = (state.warnings || []).map(w => AVISOS[w]).filter(Boolean);
-    const finos = state.result.info.flatMap(r => r.parts).filter(p => p.w > 0 && p.w < 0.8).length;
+    const finos = r.info.flatMap(x => x.parts).filter(p => p.w > 0 && p.w < 0.8).length;
     if (finos) avisos.push(`Há ${finos} partes com traço mais fino que 0,8 mm. Podem ficar falhadas. Se possível, aumente o tamanho do bordado.`);
+    const nOn = r.meta.filter(m => state.enabled[m.key]).length;
+    if (nOn > 4) avisos.push(`O desenho tem ${nOn} cores a bordar. Se a máquina tiver menos agulhas do que isso, vai ser preciso trocar linhas a meio ou juntar cores (desligue as que não quer bordar).`);
     showResult(avisos);
     setStatus(`Pronto em ${((performance.now() - t0) / 1000).toFixed(1)} s.`);
   } catch (e) { console.error(e); setStatus('Não foi possível gerar o bordado: ' + e.message, true); }
-  busy = false;
-  if (again) { again = false; generate(); }
+  finally {
+    busy = false;
+    if (again) { again = false; generate(); }
+  }
 }
 
 // ------------------------------------------------------------------ mostrar
+function perColorStitches(cmds) {
+  const out = [0]; let prev = null;
+  for (const [t, x, y] of cmds) { if (t === 'C') out.push(0); else if (t === 'S' && prev) out[out.length - 1]++; prev = [x, y]; }
+  return out;
+}
+
+function renderColors() {
+  const ul = $('#cores');
+  if (state.dstOnly || !state.meta) { ul.innerHTML = ''; return; }
+  const byKey = Object.fromEntries(state.meta.map(m => [m.key, m]));
+  const counts = perColorStitches(state.result.cmds);
+  let ci = 0;
+  ul.innerHTML = state.order.map((key, i) => {
+    const m = byKey[key]; const on = state.enabled[key] !== false;
+    const pts = on ? counts[ci++] : null;
+    return `<li class="${on ? '' : 'desligada'}">
+      <span class="ordem">${on ? ci : '–'}</span>
+      <span class="amostra" style="background:rgb(${m.color.join(',')})"></span>
+      <span class="nome">${m.name}<small>${on ? (pts || 0).toLocaleString('pt-PT') + ' pontos' : 'não é bordada'}</small></span>
+      <span class="acoes">
+        <button type="button" data-mover="${i}" data-dir="-1" aria-label="Bordar mais cedo" ${i === 0 ? 'disabled' : ''}>↑</button>
+        <button type="button" data-mover="${i}" data-dir="1" aria-label="Bordar mais tarde" ${i === state.order.length - 1 ? 'disabled' : ''}>↓</button>
+        <label class="bordar"><input type="checkbox" data-cor="${key}" ${on ? 'checked' : ''}> Bordar</label>
+      </span>
+    </li>`;
+  }).join('');
+  $('#bloco-cores').hidden = false;
+}
+
 function showResult(avisos) {
   const { cmds } = state.result;
   const s = stats(cmds);
@@ -100,8 +160,8 @@ function showResult(avisos) {
   const ok = s.longos === 0;
   $('#durabilidade').className = 'selo ' + (ok ? 'bom' : 'atencao');
   $('#durabilidade').textContent = ok ? 'Nenhum ponto acima de 7 mm' : `${s.longos} pontos acima de 7 mm (podem prender)`;
-  const cores = state.result.groups.map(g => g.color);
-  $('#cores').innerHTML = state.dstOnly ? '' : cores.map((c, i) => `<li><span class="amostra" style="background:rgb(${c.join(',')})"></span>Cor ${i + 1}</li>`).join('');
+  renderColors();
+  if (state.dstOnly) $('#bloco-cores').hidden = true;
   $('#avisos').innerHTML = avisos.map(a => `<li>${a}</li>`).join('');
   $('#avisos').hidden = !avisos.length;
   $('#vista-direcoes').disabled = !state.result.info.length;
@@ -172,6 +232,19 @@ $('#altura').addEventListener('input', () => {
   clearTimeout(deb); deb = setTimeout(generate, 600);
 });
 $('#tecido').addEventListener('change', generate);
+$('#cores').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-mover]'); if (!b) return;
+  const i = +b.dataset.mover, j = i + +b.dataset.dir;
+  if (j < 0 || j >= state.order.length) return;
+  [state.order[i], state.order[j]] = [state.order[j], state.order[i]];
+  renderColors(); generate();
+});
+$('#cores').addEventListener('change', (e) => {
+  const c = e.target.closest('[data-cor]'); if (!c) return;
+  state.enabled[c.dataset.cor] = c.checked;
+  if (!Object.values(state.enabled).some(Boolean)) { state.enabled[c.dataset.cor] = true; c.checked = true; return; }
+  generate();
+});
 $('#descarregar').addEventListener('click', download);
 for (const b of document.querySelectorAll('[data-vista]')) {
   b.addEventListener('click', () => {

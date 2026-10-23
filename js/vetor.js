@@ -98,12 +98,157 @@ async function loadPDF(u8) {
   return { objs, get, getObj, decode };
 }
 
+
+// ------------------------------------------------------------------ cores
+function labToRgb(L, a, b, wp = [0.9642, 1, 0.8249]) {
+  const fy = (L + 16) / 116, fx = fy + a / 500, fz = fy - b / 200;
+  const g = (t) => t > 6 / 29 ? t * t * t : 3 * (6 / 29) ** 2 * (t - 4 / 29);
+  let X = wp[0] * g(fx), Y = wp[1] * g(fy), Z = wp[2] * g(fz);
+  // D50 -> D65 (Bradford) e XYZ -> sRGB
+  const x = 0.9555766 * X - 0.0230393 * Y + 0.0631636 * Z, y = -0.0282895 * X + 1.0099416 * Y + 0.0210077 * Z, z = 0.0122982 * X - 0.020483 * Y + 1.3299098 * Z;
+  const lin = [3.2404542 * x - 1.5371385 * y - 0.4985314 * z, -0.969266 * x + 1.8760108 * y + 0.041556 * z, 0.0556434 * x - 0.2040259 * y + 1.0572252 * z];
+  return lin.map(v => Math.round(255 * Math.min(1, Math.max(0, v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055))));
+}
+
+// avaliador de funcoes PDF (tipos 0, 2, 3 e 4)
+async function loadFunction(pdf, ref) {
+  const o = pdf.getObj(ref); const d = o ? o.val : pdf.get(ref);
+  if (!d) return null;
+  if (Array.isArray(d)) { const fs = []; for (const f of d) fs.push(await loadFunction(pdf, f)); return (x) => fs.map(f => f(x)[0]); }
+  const clip = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const dom = d.Domain || [0, 1], rng = d.Range;
+  const fin = (out) => rng ? out.map((v, i) => clip(v, rng[2 * i], rng[2 * i + 1])) : out;
+  switch (d.FunctionType) {
+    case 2: {
+      const C0 = d.C0 || [0], C1 = d.C1 || [1], N = d.N ?? 1;
+      return (x) => { const t = clip(x[0], dom[0], dom[1]); return fin(C0.map((c, i) => c + Math.pow(t, N) * (C1[i] - c))); };
+    }
+    case 3: {
+      const fs = []; for (const f of d.Functions) fs.push(await loadFunction(pdf, f));
+      const B = d.Bounds || [], E = d.Encode || [];
+      return (x) => {
+        const t = clip(x[0], dom[0], dom[1]); let k = 0; while (k < B.length && t >= B[k]) k++;
+        const a = k === 0 ? dom[0] : B[k - 1], b = k === B.length ? dom[1] : B[k];
+        const e0 = E[2 * k] ?? 0, e1 = E[2 * k + 1] ?? 1;
+        return fin(fs[k]([b === a ? e0 : e0 + (t - a) * (e1 - e0) / (b - a)]));
+      };
+    }
+    case 0: {
+      const data = await pdf.decode(o); const bps = d.BitsPerSample || 8, size = d.Size, m = size.length, n = rng.length / 2;
+      const enc = d.Encode || size.flatMap(s => [0, s - 1]), dec = d.Decode || rng;
+      const sample = (idx, j) => {
+        const bit = (idx * n + j) * bps; let v = 0;
+        for (let b = 0; b < bps; b++) { const bi = bit + b; v = (v << 1) | ((data[bi >> 3] >> (7 - (bi & 7))) & 1); }
+        return v / (2 ** bps - 1);
+      };
+      return (x) => {
+        if (m !== 1) { // varias entradas: amostra mais proxima
+          let idx = 0, mulk = 1;
+          for (let i = 0; i < m; i++) { const e = enc[2 * i] + (clip(x[i], dom[2 * i], dom[2 * i + 1]) - dom[2 * i]) * (enc[2 * i + 1] - enc[2 * i]) / (dom[2 * i + 1] - dom[2 * i]); idx += Math.round(clip(e, 0, size[i] - 1)) * mulk; mulk *= size[i]; }
+          return fin(Array.from({ length: n }, (_, j) => dec[2 * j] + sample(idx, j) * (dec[2 * j + 1] - dec[2 * j])));
+        }
+        const e = clip(enc[0] + (clip(x[0], dom[0], dom[1]) - dom[0]) * (enc[1] - enc[0]) / (dom[1] - dom[0]), 0, size[0] - 1);
+        const i0 = Math.floor(e), i1 = Math.min(size[0] - 1, i0 + 1), f = e - i0;
+        return fin(Array.from({ length: n }, (_, j) => { const v = sample(i0, j) * (1 - f) + sample(i1, j) * f; return dec[2 * j] + v * (dec[2 * j + 1] - dec[2 * j]); }));
+      };
+    }
+    case 4: {
+      const src = latin1(await pdf.decode(o));
+      const toks = src.replace(/[{}]/g, m => ` ${m} `).trim().split(/\s+/);
+      let p = 0;
+      const parse = () => { const out = []; while (p < toks.length) { const t = toks[p++]; if (t === '{') out.push(parse()); else if (t === '}') return out; else out.push(isNaN(+t) ? t : +t); } return out; };
+      p = 1; const prog = parse(); // salta o primeiro '{'
+      const run = (code, st) => {
+        for (let i = 0; i < code.length; i++) {
+          const t = code[i];
+          if (typeof t === 'number' || Array.isArray(t)) { st.push(t); continue; }
+          const b = () => st.pop();
+          switch (t) {
+            case 'add': { const y = b(); st.push(b() + y); break; } case 'sub': { const y = b(); st.push(b() - y); break; }
+            case 'mul': { const y = b(); st.push(b() * y); break; } case 'div': { const y = b(); st.push(b() / y); break; }
+            case 'idiv': { const y = b(); st.push(Math.trunc(b() / y)); break; } case 'mod': { const y = b(); st.push(b() % y); break; }
+            case 'neg': st.push(-b()); break; case 'abs': st.push(Math.abs(b())); break;
+            case 'ceiling': st.push(Math.ceil(b())); break; case 'floor': st.push(Math.floor(b())); break;
+            case 'round': st.push(Math.round(b())); break; case 'truncate': case 'cvi': st.push(Math.trunc(b())); break; case 'cvr': break;
+            case 'sqrt': st.push(Math.sqrt(b())); break; case 'exp': { const e = b(); st.push(Math.pow(b(), e)); break; }
+            case 'ln': st.push(Math.log(b())); break; case 'log': st.push(Math.log10(b())); break;
+            case 'sin': st.push(Math.sin(b() * Math.PI / 180)); break; case 'cos': st.push(Math.cos(b() * Math.PI / 180)); break;
+            case 'atan': { const den = b(); st.push((Math.atan2(b(), den) * 180 / Math.PI + 360) % 360); break; }
+            case 'dup': st.push(st[st.length - 1]); break; case 'pop': b(); break;
+            case 'exch': { const y = b(), x = b(); st.push(y, x); break; }
+            case 'copy': { const n = b(); st.push(...st.slice(st.length - n)); break; }
+            case 'index': { const n = b(); st.push(st[st.length - 1 - n]); break; }
+            case 'roll': { const j = b(), n = b(); if (n > 0) { const a = st.splice(st.length - n, n); const s2 = ((j % n) + n) % n; st.push(...a.slice(n - s2), ...a.slice(0, n - s2)); } break; }
+            case 'eq': st.push(b() === b()); break; case 'ne': st.push(b() !== b()); break;
+            case 'gt': { const y = b(); st.push(b() > y); break; } case 'ge': { const y = b(); st.push(b() >= y); break; }
+            case 'lt': { const y = b(); st.push(b() < y); break; } case 'le': { const y = b(); st.push(b() <= y); break; }
+            case 'and': { const y = b(), x = b(); st.push(typeof x === 'boolean' ? x && y : x & y); break; }
+            case 'or': { const y = b(), x = b(); st.push(typeof x === 'boolean' ? x || y : x | y); break; }
+            case 'not': { const x = b(); st.push(typeof x === 'boolean' ? !x : ~x); break; }
+            case 'true': st.push(true); break; case 'false': st.push(false); break;
+            case 'if': { const c = b(); if (b()) run(c, st); break; }
+            case 'ifelse': { const c2 = b(), c1 = b(); run(b() ? c1 : c2, st); break; }
+            default: break;
+          }
+        }
+        return st;
+      };
+      return (x) => fin(run(prog, [...x]).slice(-(rng.length / 2)));
+    }
+    default: return null;
+  }
+}
+
+const hashColor = (name) => { let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0; return [60 + h % 160, 60 + (h >> 8) % 160, 60 + (h >> 16) % 160]; };
+
+// devolve { n, rgb(comps), name } para um espaco de cor
+async function resolveCS(pdf, cs, resources, depth = 0) {
+  const dev = { DeviceGray: 1, G: 1, CalGray: 1, DeviceRGB: 3, RGB: 3, CalRGB: 3, DeviceCMYK: 4, CMYK: 4 };
+  const byN = (n) => ({ n, rgb: (c) => n === 4 ? cmykToRgb(...c) : n === 3 ? c.map(v => Math.round(v * 255)) : [c[0], c[0], c[0]].map(v => Math.round(v * 255)) });
+  if (!cs || depth > 5) return byN(1);
+  if (cs.name) {
+    if (dev[cs.name]) return byN(dev[cs.name]);
+    if (cs.name === 'Pattern') return { n: 0, pattern: true, rgb: () => [128, 128, 128] };
+    const csd = resources && pdf.get(resources.ColorSpace) || {};
+    const ref = csd[cs.name];
+    if (ref) return resolveCS(pdf, pdf.get(ref), resources, depth + 1);
+    return byN(1);
+  }
+  const arr = pdf.get(cs); if (!Array.isArray(arr)) return byN(1);
+  const kind = arr[0] && arr[0].name;
+  if (kind === 'ICCBased') { const st = pdf.getObj(arr[1]); const N = st && st.val.N || 3; if (st && st.val.Alternate) return resolveCS(pdf, st.val.Alternate, resources, depth + 1); return byN(N); }
+  if (kind === 'CalRGB') return byN(3); if (kind === 'CalGray') return byN(1);
+  if (kind === 'Lab') { const d = pdf.get(arr[1]) || {}; const wp = d.WhitePoint || [0.9642, 1, 0.8249]; return { n: 3, rgb: (c) => labToRgb(c[0], c[1], c[2], wp) }; }
+  if (kind === 'Separation' || kind === 'DeviceN') {
+    const names = kind === 'Separation' ? [arr[1].name] : (pdf.get(arr[1]) || []).map(x => x.name);
+    const alt = await resolveCS(pdf, arr[2], resources, depth + 1);
+    let fn = null; try { fn = await loadFunction(pdf, arr[3]); } catch (e) { fn = null; }
+    const name = names.filter(n => n && n !== 'None').map(n => n.replace(/#([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))).join(' + ');
+    if (names.length === 1 && names[0] === 'All') return { n: 1, rgb: (c) => [1, 1, 1].map(() => Math.round(255 * (1 - c[0]))), name: 'Registo' };
+    return {
+      n: names.length, name: name || null,
+      rgb: (c) => { try { if (fn) { const out = fn(c); if (out.every(Number.isFinite)) return alt.rgb(out); } } catch (e) { /* recorre ao nome */ } return hashColor(name); },
+    };
+  }
+  if (kind === 'Indexed') {
+    const base = await resolveCS(pdf, arr[1], resources, depth + 1); const hival = arr[2]; let lut = arr[3]; let bytes;
+    const lo = pdf.getObj(lut);
+    if (lo && lo.stream) bytes = await pdf.decode(lo);
+    else if (lut && lut.hex !== undefined) { const h = lut.hex.replace(/\s/g, ''); bytes = Uint8Array.from(h.match(/../g) || [], x => parseInt(x, 16)); }
+    else if (lut && lut.str !== undefined) bytes = Uint8Array.from(lut.str, ch => ch.charCodeAt(0) & 255);
+    return { n: 1, rgb: (c) => { const i = Math.min(hival, Math.max(0, Math.round(c[0]))); const comps = []; for (let k = 0; k < base.n; k++) comps.push((bytes ? bytes[i * base.n + k] : 0) / 255); return base.rgb(comps); } };
+  }
+  if (kind === 'Pattern') return { n: 0, pattern: true, rgb: () => [128, 128, 128] };
+  return byN(1);
+}
+
 // ------------------------------------------------------------------ interpretador
 function cmykToRgb(c, m, y, k) { return [255 * (1 - c) * (1 - k), 255 * (1 - m) * (1 - k), 255 * (1 - y) * (1 - k)].map(Math.round); }
 
-async function runContent(pdf, bytes, resources, ctm0, out, warn, depth = 0) {
+async function runContent(pdf, bytes, resources, ctm0, out, warn, depth = 0, clip0 = null) {
   const s = latin1(bytes); const lx = new Lexer(s);
-  const st = []; let gs = { ctm: ctm0, fill: [0, 0, 0], ncs: 1 };
+  const st = []; let gs = { ctm: ctm0, fill: [0, 0, 0], cs: null, name: null, clip: clip0 || [] };
+  let pendingClip = false;
   let path = [], cur = null, ops = [];
   const mul = (a, b) => [a[0] * b[0] + a[1] * b[2], a[0] * b[1] + a[1] * b[3], a[2] * b[0] + a[3] * b[2], a[2] * b[1] + a[3] * b[3], a[4] * b[0] + a[5] * b[2] + b[4], a[4] * b[1] + a[5] * b[3] + b[5]];
   const T = (x, y) => { const c = gs.ctm; return [c[0] * x + c[2] * y + c[4], c[1] * x + c[3] * y + c[5]]; };
@@ -114,11 +259,18 @@ async function runContent(pdf, bytes, resources, ctm0, out, warn, depth = 0) {
     return r;
   };
   const sub = () => { if (cur && cur.length > 2) path.push(cur); cur = null; };
-  const setColor = (nums, space) => {
+  const setColor = (nums) => {
+    if (gs.cs) {
+      if (gs.cs.pattern) { warn.add('gradiente'); return; }
+      gs.fill = gs.cs.rgb(nums.slice(0, gs.cs.n)); gs.name = gs.cs.name ? gs.cs.name + (nums[0] < 0.999 && gs.cs.n === 1 ? ` ${Math.round(nums[0] * 100)}%` : '') : null;
+      return;
+    }
     if (nums.length === 4) gs.fill = cmykToRgb(...nums);
     else if (nums.length === 3) gs.fill = nums.map(v => Math.round(v * 255));
     else if (nums.length === 1) gs.fill = [1, 1, 1].map(() => Math.round(nums[0] * 255));
+    gs.name = null;
   };
+  const endPath = () => { if (pendingClip) { sub(); if (path.length) gs.clip = [...gs.clip, path.map(r => r.slice())]; pendingClip = false; } };
   const xobjs = resources && pdf.get(resources.XObject) || {};
   for (;;) {
     lx.ws(); if (lx.i >= s.length) break;
@@ -137,12 +289,24 @@ async function runContent(pdf, bytes, resources, ctm0, out, warn, depth = 0) {
       case 'h': if (cur) { const f = cur[0]; sub(); cur = [f]; } break;
       case 're': { sub(); const [x, y, w, h] = a; path.push([T(x, y), T(x + w, y), T(x + w, y + h), T(x, y + h)]); break; }
       case 'f': case 'F': case 'f*': case 'B': case 'B*': case 'b': case 'b*':
-        sub(); if (path.length) out.push({ color: gs.fill.slice(), rings: path }); path = []; cur = null; break;
-      case 'S': case 's': sub(); if (path.length) warn.add('contornos'); path = []; cur = null; break;
-      case 'n': path = []; cur = null; break;
-      case 'W': case 'W*': break;
-      case 'rg': case 'k': case 'g': case 'sc': case 'scn': setColor(a.filter(x => typeof x === 'number')); break;
-      case 'cs': break;
+        sub(); if (path.length) out.push({ color: gs.fill.slice(), name: gs.name, rings: path, clips: gs.clip, eo: v.op.endsWith('*') });
+        endPath(); path = []; cur = null; break;
+      case 'S': case 's': sub(); if (path.length) warn.add('contornos'); endPath(); path = []; cur = null; break;
+      case 'n': endPath(); path = []; cur = null; break;
+      case 'W': case 'W*': pendingClip = true; break;
+      case 'rg': case 'k': case 'g': gs.cs = null; setColor(a.filter(x => typeof x === 'number')); break;
+      case 'sc': case 'scn': {
+        const nm = a[a.length - 1];
+        if (nm && nm.name) { warn.add('gradiente'); break; } // padrao/gradiente
+        setColor(a.filter(x => typeof x === 'number')); break;
+      }
+      case 'cs': {
+        const c = a[a.length - 1];
+        gs.cs = await resolveCS(pdf, c, resources);
+        setColor(gs.cs.n === 4 ? [0, 0, 0, 1] : gs.cs.n === 3 ? [0, 0, 0] : gs.cs.n === 1 && !gs.cs.name ? [0] : new Array(Math.max(1, gs.cs.n)).fill(gs.cs.name ? 1 : 0));
+        break;
+      }
+      case 'sh': warn.add('gradiente'); break;
       case 'BT': warn.add('texto'); break;
       case 'BI': { const e = s.indexOf('EI', lx.i); lx.i = e + 2; warn.add('imagem'); break; }
       case 'Do': {
@@ -151,7 +315,7 @@ async function runContent(pdf, bytes, resources, ctm0, out, warn, depth = 0) {
         if (o.val.Subtype && o.val.Subtype.name === 'Form') {
           const M = o.val.Matrix || [1, 0, 0, 1, 0, 0];
           const data = await pdf.decode(o) || new Uint8Array();
-          await runContent(pdf, data, pdf.get(o.val.Resources) || resources, mul(M, gs.ctm), out, warn, depth + 1);
+          await runContent(pdf, data, pdf.get(o.val.Resources) || resources, mul(M, gs.ctm), out, warn, depth + 1, gs.clip);
         } else if (o.val.Subtype && o.val.Subtype.name === 'Image') warn.add('imagem');
         break;
       }
@@ -176,7 +340,8 @@ export async function readPDF(arrayBuffer) {
   const shapes = [], warn = new Set();
   await runContent(pdf, all, res, [1, 0, 0, 1, 0, 0], shapes, warn);
   // pt -> mm (y ja e para cima no PDF)
-  for (const sh of shapes) sh.rings = sh.rings.map(r => r.map(([x, y]) => [x * PT_MM, y * PT_MM]));
+  const mm = (rs) => rs.map(r => r.map(([x, y]) => [x * PT_MM, y * PT_MM]));
+  for (const sh of shapes) { sh.rings = mm(sh.rings); sh.clips = (sh.clips || []).map(mm); }
   return { shapes: dropBackground(shapes), warnings: [...warn] };
 }
 
@@ -224,7 +389,12 @@ export function readSVG(text) {
   return { shapes: dropBackground(shapes), warnings: [...warn] };
 }
 
-// remove um retangulo de fundo branco que cubra tudo (comum em exportacoes)
+// remove um fundo branco/quase branco que cubra o desenho todo (comum em exportacoes)
 function dropBackground(shapes) {
-  return shapes.filter(s => !(s.color.every(v => v > 245)));
+  const bb = (rs) => { let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity; for (const r of rs) for (const [x, y] of r) { a = Math.min(a, x); b = Math.max(b, x); c = Math.min(c, y); d = Math.max(d, y); } return [a, b, c, d]; };
+  const all = bb(shapes.flatMap(s => s.rings)); const A = (all[1] - all[0]) * (all[3] - all[2]);
+  return shapes.filter((s, i) => {
+    if (!s.color.every(v => v > 240)) return true;
+    const b = bb(s.rings); return !(i < 2 && (b[1] - b[0]) * (b[3] - b[2]) > 0.9 * A);
+  });
 }

@@ -12,7 +12,7 @@ Para quem domina o Corel mas perde horas no software de bordado a acertar pontos
 
 ## Como usar
 
-1. No Corel, converta o texto em curvas (**Ctrl+Q**) e exporte em **PDF**.
+1. No Corel, converta o texto em curvas (**Ctrl+Q**) e exporte em **PDF**. No Illustrator: **Texto → Criar contornos** (Ctrl+Shift+O), **Objeto → Expandir** nos traços, e **Guardar como → Adobe PDF**.
 2. Arraste o PDF para a página.
 3. Escolha a largura em mm e o tipo de tecido.
 4. Veja a simulação, as direções do ponto e o percurso da agulha.
@@ -25,13 +25,15 @@ Para quem domina o Corel mas perde horas no software de bordado a acertar pontos
 - **Tipo de ponto:** cetim nas partes estreitas, tatami (enchimento) nas largas; cetim dividido acima de 6 mm.
 - **Durabilidade:** nenhum ponto acima de 7 mm, ponto de base (underlay), compensação de repuxo e remates.
 - **Menos cortes:** liga as partes da mesma letra por baixo do bordado; só corta a linha entre letras (sequência de 3 saltos, como os programas Tajima).
-- **Cores:** cada cor de preenchimento do PDF é bordada por ordem, com troca de cor no DST.
+- **Várias cores (até 4 ou mais):** cada cor de preenchimento é uma linha; tons quase iguais juntam-se. Onde uma cor tapa outra, a de baixo é recortada (fica 0,35 mm de margem por baixo para não abrir fendas). A ordem de bordado muda-se na página e cada cor pode ser desligada (fica à vista do tecido). O DST leva as trocas de cor.
+- **PDF do Corel e do Illustrator:** cores CMYK, RGB, ICC, Lab e cores spot (Pantone, com o nome), máscaras de recorte.
+- **Enchimentos largos:** uma só direção por forma (sem costuras); o cetim acompanha os traços estreitos.
 
 ## Limitações atuais
 
 - Só formas **preenchidas**; contornos sem preenchimento e imagens (bitmap) são ignorados.
 - Lê a primeira página do PDF.
-- Logótipos com várias cores sobrepostas ainda não fazem remoção de sobreposições.
+- Gradientes e transparências não se bordam (use cores sólidas).
 - Traços com menos de 0,8 mm de largura são difíceis de bordar em qualquer programa.
 
 ## Como funciona (para quem quer contribuir)
@@ -42,6 +44,8 @@ Tudo em JavaScript, sem dependências nem compilação:
 |---|---|
 | `js/vetor.js` | Leitor de PDF próprio (objetos, streams Flate, operadores de caminho) e de SVG |
 | `js/curvas.js` | Cetim rotativo: esqueleto → linha central → carris exatos no vetor → ziguezague com densidade constante por fora |
+| `js/camadas.js` | Cores: agrupar tons, recortes, retirar o que fica tapado (raster + contornos) |
+| `js/trabalho.js` | Cálculo em segundo plano (Web Worker) |
 | `js/motor.js` | Digitalização: cordas por ângulo → núcleos de direção → partes → cetim/tatami/base → sequência e ligações (Dijkstra por dentro da letra) |
 | `js/dst.js` | Escrita/leitura de Tajima DST |
 | `js/visual.js` | Simulação do bordado, mapa de direções, percurso |

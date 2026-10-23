@@ -2,7 +2,6 @@
 // acompanha a curva. Linha central = esqueleto da forma; em cada ponto da linha
 // central lanca-se a perpendicular ate as bordas exatas do vetor (os "carris").
 
-import { RES } from './motor.js';
 
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 
@@ -195,6 +194,13 @@ function longestPath(sk, W, H, blocked) {
 
 export function turningColumn(rings, g, P) {
   _why = '';
+  const RES = g.res;
+  // recusa rapida: largura media = 2 x area / perimetro (formas largas nao sao tracos de cetim)
+  {
+    let A = 0, per = 0;
+    rings.forEach((r, k) => { let s = 0; for (let i = 0; i < r.length; i++) { const p = r[i], q = r[(i + 1) % r.length]; s += p[0] * q[1] - q[0] * p[1]; per += Math.hypot(q[0] - p[0], q[1] - p[1]); } A += (k === 0 ? 1 : -1) * Math.abs(s / 2); });
+    if (2 * A / Math.max(per, 1e-6) > P.satin_max * 0.75) { _why = 'largo (rapido)'; return null; }
+  }
   const { W, H } = g;
   const sk = thin(g.mask, W, H);
   const skPts = []; for (let i = 0; i < sk.length; i++) if (sk[i]) skPts.push(i);

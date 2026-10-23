@@ -26,7 +26,7 @@
     <label class="zona" id="zona" for="ficheiro">
       <input type="file" id="ficheiro" accept=".pdf,.svg,.dst">
       <strong>Arraste o PDF para aqui</strong>
-      <span>ou clique para escolher. Exporte do Corel em <b>PDF</b> com o texto convertido em curvas.</span>
+      <span>ou clique para escolher. PDF do Corel ou do Illustrator, com o texto convertido em curvas. Até 4 cores (ou mais).</span>
     </label>
     <div class="linha">
       <button type="button" class="secundario" id="exemplo">Experimentar com um exemplo</button>
@@ -59,11 +59,15 @@
     <div class="quadro"><canvas id="tela" aria-label="Pré-visualização do bordado"></canvas></div>
     <p class="legenda" id="legenda"></p>
     <ul class="avisos" id="avisos" hidden></ul>
+    <div class="bloco-cores" id="bloco-cores" hidden>
+      <h3>Cores, pela ordem de bordado</h3>
+      <ol class="cores" id="cores"></ol>
+      <p class="nota">Cada cor do ficheiro é uma linha. Onde uma cor tapa outra, a de baixo não é bordada por baixo (fica só uma margem de 0,35 mm). Desligue uma cor para a deixar à vista do tecido.</p>
+    </div>
     <div class="resumo">
       <dl class="numeros" id="numeros"></dl>
       <div class="lado">
         <p class="selo" id="durabilidade"></p>
-        <ul class="cores" id="cores"></ul>
         <button type="button" class="principal" id="descarregar" disabled>Descarregar DST</button>
         <p class="nota">No DG17 (ou outro programa Tajima): <b>Arquivo → Abrir</b> o DST e <b>Guardar como</b> TCF para a pen.</p>
       </div>

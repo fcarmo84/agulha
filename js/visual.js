@@ -82,11 +82,11 @@ export function drawDirections(canvas, info, cmds, ink) {
       const col = HUES[n++ % HUES.length];
       const light = col.map(c => Math.round(c * 0.35 + 255 * 0.65));
       // pintar a parte: percorrer pixels do canvas dentro da caixa da regiao
-      const [ax, ay] = f(g.x0 * 10, g.y1 * 10), [bx, by] = f((g.x0 + g.W * 0.1) * 10, (g.y1 - g.H * 0.1) * 10);
+      const [ax, ay] = f(g.x0 * 10, g.y1 * 10), [bx, by] = f((g.x0 + g.W * g.res) * 10, (g.y1 - g.H * g.res) * 10);
       for (let py = Math.max(0, Math.floor(ay)); py < Math.min(H, Math.ceil(by)); py++) {
         for (let px = Math.max(0, Math.floor(ax)); px < Math.min(W, Math.ceil(bx)); px++) {
           const mx = (g.x0 * 10 + (px - ax) / k) / 10, my = (g.y1 * 10 - (py - ay) / k) / 10;
-          if (g.look(part.mask, mx, my)) {
+          if (g.look(reg.labels, mx, my) === part.id) {
             const i = (py * W + px) * 4; img.data[i] = light[0]; img.data[i + 1] = light[1]; img.data[i + 2] = light[2]; img.data[i + 3] = 255;
           }
         }
@@ -113,10 +113,10 @@ export function drawDirections(canvas, info, cmds, ink) {
       const a = part.ang * Math.PI / 180, ux = Math.cos(a), uy = Math.sin(a);
       const step = Math.max(1.2, 14 / k / 10); // mm entre tracinhos (~14 px)
       ctx.strokeStyle = `rgb(${col.map(c => Math.round(c * 0.7)).join(',')})`; ctx.lineWidth = 2;
-      const xs0 = g.x0, ys1 = g.y1, xs1 = g.x0 + g.W * 0.1, ys0 = g.y1 - g.H * 0.1;
+      const xs0 = g.x0, ys1 = g.y1, xs1 = g.x0 + g.W * g.res, ys0 = g.y1 - g.H * g.res;
       for (let my = Math.floor(ys0 / step) * step; my <= ys1; my += step) {
         for (let mx = Math.floor(xs0 / step) * step; mx <= xs1; mx += step) {
-          if (!g.look(part.mask, mx, my)) continue;
+          if (g.look(reg.labels, mx, my) !== part.id) continue;
           const [px, py] = f(mx * 10, my * 10), h = step * 10 * k * 0.38;
           ctx.beginPath(); ctx.moveTo(px - ux * h, py + uy * h); ctx.lineTo(px + ux * h, py - uy * h); ctx.stroke();
         }
