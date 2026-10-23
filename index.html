@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Agulha</title>
+<meta name="description" content="Converte logótipos em PDF (CorelDRAW) em ficheiros de bordado DST para máquinas Tajima. Grátis, sem instalar, os ficheiros não saem do seu computador.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="css/estilo.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M26 4 7 23' stroke='%23233a8c' stroke-width='3' stroke-linecap='round'/%3E%3Cellipse cx='24' cy='6' rx='2.2' ry='1' transform='rotate(-45 24 6)' fill='%23fff' stroke='%23233a8c'/%3E%3Cpath d='M7 23c-3 3-1 6 2 5s6-6 9-4' fill='none' stroke='%23c2412d' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+</head>
+<body>
+<header class="topo">
+  <div class="marca">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><path d="M26 4 7 23" class="agulha"/><ellipse cx="24" cy="6" rx="2.2" ry="1" transform="rotate(-45 24 6)" class="olho"/><path d="M7 23c-3 3-1 6 2 5s6-6 9-4" class="fio"/></svg>
+    <span>Agulha</span>
+  </div>
+  <p class="lema">Do PDF do Corel ao ficheiro de bordado, sem digitalizar à mão.</p>
+</header>
+
+<main>
+  <section class="passo" id="passo1" aria-labelledby="t1">
+    <h2 id="t1"><span class="num">1</span> Abrir o logótipo</h2>
+    <label class="zona" id="zona" for="ficheiro">
+      <input type="file" id="ficheiro" accept=".pdf,.svg,.dst">
+      <strong>Arraste o PDF para aqui</strong>
+      <span>ou clique para escolher. Exporte do Corel em <b>PDF</b> com o texto convertido em curvas.</span>
+    </label>
+    <div class="linha">
+      <button type="button" class="secundario" id="exemplo">Experimentar com um exemplo</button>
+      <p class="estado" id="estado" role="status">Os ficheiros são tratados neste computador e não são enviados para lado nenhum.</p>
+    </div>
+  </section>
+
+  <section class="passo" id="passo2" aria-labelledby="t2" hidden>
+    <h2 id="t2"><span class="num">2</span> Tamanho e tecido</h2>
+    <div class="campos">
+      <label class="campo"><span>Largura</span><span class="com-unidade"><input id="largura" type="number" min="10" max="400" step="0.5" inputmode="decimal"><i>mm</i></span></label>
+      <label class="campo"><span>Altura</span><span class="com-unidade"><input id="altura" type="number" min="5" max="400" step="0.5" inputmode="decimal"><i>mm</i></span></label>
+      <label class="campo largo"><span>Tecido</span>
+        <select id="tecido">
+          <option value="normal">Normal (algodão, sarja)</option>
+          <option value="malha">Malha (polos, t-shirts)</option>
+          <option value="grosso">Grosso (ganga, lona, oleado)</option>
+        </select>
+      </label>
+    </div>
+  </section>
+
+  <section class="passo" id="passo3" aria-labelledby="t3" hidden>
+    <h2 id="t3"><span class="num">3</span> Ver e descarregar</h2>
+    <div class="vistas" role="group" aria-label="Vista">
+      <button type="button" data-vista="bordado" aria-pressed="true">Como fica bordado</button>
+      <button type="button" data-vista="direcoes" id="vista-direcoes" aria-pressed="false">Direções do ponto</button>
+      <button type="button" data-vista="percurso" aria-pressed="false">Percurso da agulha</button>
+    </div>
+    <div class="quadro"><canvas id="tela" aria-label="Pré-visualização do bordado"></canvas></div>
+    <p class="legenda" id="legenda"></p>
+    <ul class="avisos" id="avisos" hidden></ul>
+    <div class="resumo">
+      <dl class="numeros" id="numeros"></dl>
+      <div class="lado">
+        <p class="selo" id="durabilidade"></p>
+        <ul class="cores" id="cores"></ul>
+        <button type="button" class="principal" id="descarregar" disabled>Descarregar DST</button>
+        <p class="nota">No DG17 (ou outro programa Tajima): <b>Arquivo → Abrir</b> o DST e <b>Guardar como</b> TCF para a pen.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="ajuda" aria-labelledby="t4">
+    <h2 id="t4">O que a Agulha faz por si</h2>
+    <dl>
+      <div><dt>Direções do ponto</dt><dd>Divide cada letra em partes (pernas, diagonais, curvas) e põe o ponto atravessado a cada traço, como um digitalizador faria.</dd></div>
+      <div><dt>Tipo de ponto</dt><dd>Cetim nas partes estreitas, enchimento (tatami) nas largas. Nenhum ponto passa de 7 mm, para não prender nem soltar.</dd></div>
+      <div><dt>Base e compensação</dt><dd>Põe ponto de base por baixo, alarga o cetim para compensar o repuxo do tecido e remata no início e no fim.</dd></div>
+      <div><dt>Menos cortes</dt><dd>Liga as partes da mesma letra por baixo do bordado e só corta a linha quando tem de saltar entre letras.</dd></div>
+    </dl>
+    <p class="rodape">Projeto aberto e gratuito. Funciona melhor com logótipos de cor sólida, texto e formas. Teste sempre num retalho antes de produzir. <a href="https://github.com/fcarmo84/agulha">Código e sugestões no GitHub</a>.</p>
+  </section>
+</main>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
