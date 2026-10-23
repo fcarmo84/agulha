@@ -20,7 +20,8 @@ Para quem domina o Corel mas perde horas no software de bordado a acertar pontos
 
 ## O que faz automaticamente
 
-- **Direções do ponto:** cada letra é dividida em partes (pernas, diagonais, curvas) e cada parte recebe o ponto atravessado ao traço.
+- **Cetim rotativo nas curvas:** em traços curvos sem cruzamentos (S, C, O, D pequenos…) o ponto acompanha a curva; a densidade é medida pelo lado de fora e o lado de dentro leva pontos curtos alternados.
+- **Direções do ponto:** letras com pernas e cruzamentos (N, E, A…) são divididas em partes, cada uma com o ponto atravessado ao traço.
 - **Tipo de ponto:** cetim nas partes estreitas, tatami (enchimento) nas largas; cetim dividido acima de 6 mm.
 - **Durabilidade:** nenhum ponto acima de 7 mm, ponto de base (underlay), compensação de repuxo e remates.
 - **Menos cortes:** liga as partes da mesma letra por baixo do bordado; só corta a linha entre letras (sequência de 3 saltos, como os programas Tajima).
@@ -40,6 +41,7 @@ Tudo em JavaScript, sem dependências nem compilação:
 | Ficheiro | O que faz |
 |---|---|
 | `js/vetor.js` | Leitor de PDF próprio (objetos, streams Flate, operadores de caminho) e de SVG |
+| `js/curvas.js` | Cetim rotativo: esqueleto → linha central → carris exatos no vetor → ziguezague com densidade constante por fora |
 | `js/motor.js` | Digitalização: cordas por ângulo → núcleos de direção → partes → cetim/tatami/base → sequência e ligações (Dijkstra por dentro da letra) |
 | `js/dst.js` | Escrita/leitura de Tajima DST |
 | `js/visual.js` | Simulação do bordado, mapa de direções, percurso |

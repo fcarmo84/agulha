@@ -9,7 +9,7 @@ export const RES = 0.1; // mm por pixel na analise
 export const PARAM = {
   satin_max: 6.0,
   satin_spacing: 0.40,
-  satin_spacing_fino: 0.45,
+  satin_spacing_fino: 0.40,
   fill_spacing: 0.42,
   fill_len: 3.5,
   run_len: 2.0,
@@ -19,6 +19,8 @@ export const PARAM = {
   overlap_px: 2,
   density: 1.0, // multiplicador: >1 mais denso
 };
+
+import { turningColumn, turningSatin, turningUnderlay } from './curvas.js';
 
 const D2R = Math.PI / 180;
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -446,6 +448,20 @@ function refineAngle(rings, g, m, a0) {
 export function digitizeRegion(rings, P, info) {
   const g = new Grid(rings);
   const { W, H } = g;
+  // 1) traco curvo simples (S, C, O...): cetim rotativo que acompanha a curva
+  if (P.curvas !== false) {
+    const col = turningColumn(rings, g, P);
+    if (col) {
+      const blocks = [];
+      const ul = turningUnderlay(col, P);
+      if (ul && ul.length > 1) blocks.push({ pts: ul, kind: 'base', part: 1 });
+      blocks.push({ pts: turningSatin(col, P), kind: 'cetim', part: 1 });
+      const part = { id: 1, ang: 0, mask: g.mask, blocks, satin: true, w: col.wmed, curva: true, rails: col.rails };
+      if (info) info.push({ grid: g, labels: null, parts: [part] });
+      return sequence([part], g, P);
+    }
+  }
+  // 2) caso geral: dividir em partes com direcao fixa
   const { L, angles } = splitParts(g, P);
   const parts = [];
   const gmaskEroded = erode(g.mask, W, H, 3);
@@ -487,7 +503,7 @@ function travelOk(g, sewn, a, b) {
   const n = Math.max(2, Math.floor(d / (RES / 2)));
   for (let k = 0; k < n; k++) {
     const t = k / (n - 1), x = a[0] + (b[0] - a[0]) * t, y = a[1] + (b[1] - a[1]) * t;
-    const near = t * d < 0.6 || (1 - t) * d < 0.6;
+    const near = t * d < 0.25 || (1 - t) * d < 0.25;
     if (near) continue;
     if (!g.look(g.inner, x, y) || g.look(sewn, x, y)) return false;
   }

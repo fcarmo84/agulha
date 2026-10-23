@@ -100,6 +100,16 @@ export function drawDirections(canvas, info, cmds, ink) {
     const g = reg.grid;
     for (const part of reg.parts) {
       const col = HUES[n++ % HUES.length];
+      if (part.rails) { // cetim rotativo: tracinhos ao longo da curva
+        ctx.strokeStyle = `rgb(${col.map(c => Math.round(c * 0.7)).join(',')})`; ctx.lineWidth = 2;
+        const every = Math.max(4, Math.round(14 / (k * 10) / 0.1));
+        for (let i = 0; i < part.rails.length; i += every) {
+          const r = part.rails[i], c0 = f(r.c[0] * 10, r.c[1] * 10);
+          const ux = r.n[0], uy = r.n[1], h = Math.min(r.w * 0.38, 0.6 * every * 0.1) * 10 * k;
+          ctx.beginPath(); ctx.moveTo(c0[0] - ux * h, c0[1] + uy * h); ctx.lineTo(c0[0] + ux * h, c0[1] - uy * h); ctx.stroke();
+        }
+        continue;
+      }
       const a = part.ang * Math.PI / 180, ux = Math.cos(a), uy = Math.sin(a);
       const step = Math.max(1.2, 14 / k / 10); // mm entre tracinhos (~14 px)
       ctx.strokeStyle = `rgb(${col.map(c => Math.round(c * 0.7)).join(',')})`; ctx.lineWidth = 2;
