@@ -171,7 +171,26 @@ export function prepareLayers(shapes, opt = {}) {
       label[k] = g;
     }
   });
-  // 3) zona visivel de cada cor + sobreposicao por baixo das cores de cima
+  // 3) ordem de bordado por defeito: uma cor que tapa outra e bordada depois dela
+  //    (os pormenores de cima, como letras brancas sobre um fundo de cor, ficam para o fim)
+  const G = groups.length, cover = groups.map(() => new Float64Array(G));
+  for (let a = 0; a < G; a++) { const P = painted[a]; for (let k = 0; k < N; k++) if (P[k] && label[k] !== a && label[k] >= 0) cover[a][label[k]]++; }
+  const minPx = 0.3 / (res * res);
+  const order = [], done = new Array(G).fill(false);
+  while (order.length < G) {
+    // escolher a primeira cor (pela ordem do ficheiro) que nao esteja tapada por nenhuma cor ainda por bordar... ao contrario:
+    // uma cor so entra quando todas as que ela tapa ja entraram
+    let pick = -1;
+    for (let b = 0; b < G && pick < 0; b++) {
+      if (done[b]) continue;
+      let ok = true;
+      for (let a = 0; a < G; a++) if (!done[a] && a !== b && cover[a][b] > minPx && cover[a][b] > cover[b][a]) { ok = false; break; }
+      if (ok) pick = b;
+    }
+    if (pick < 0) pick = done.indexOf(false); // ciclo: segue a ordem do ficheiro
+    done[pick] = true; order.push(pick);
+  }
+  // 4) zona visivel de cada cor + sobreposicao por baixo das cores de cima
   const ovPx = Math.max(1, Math.round(overlap / res));
   const out = groups.map((G, g) => {
     const vis = new Uint8Array(N); let covered = 0;
@@ -182,6 +201,7 @@ export function prepareLayers(shapes, opt = {}) {
     for (let k = 0; k < N; k++) if (grown[k] && !vis[k] && !(painted[g][k] && label[k] !== g)) grown[k] = 0;
     const rings = contours(grown, cv).map(r => simplify(r, res * 0.6)).filter(r => ringArea(r) > 0.4);
     return { color: G.color, name: G.name, rings, exact: false };
-  }).filter(G => G.rings.length);
-  return { groups: out, res, hairlines };
+  });
+  const sorted = order.map(i => out[i]).filter(Gr => Gr.rings.length);
+  return { groups: sorted, res, hairlines };
 }

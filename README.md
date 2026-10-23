@@ -14,7 +14,7 @@ Para quem domina o Corel mas perde horas no software de bordado a acertar pontos
 
 1. No Corel, converta o texto em curvas (**Ctrl+Q**) e exporte em **PDF**. No Illustrator: **Texto → Criar contornos** (Ctrl+Shift+O), **Objeto → Expandir** nos traços, e **Guardar como → Adobe PDF**.
 2. Arraste o PDF para a página.
-3. Escolha a largura em mm e o tipo de tecido.
+3. Escolha a largura em mm, o ponto máximo (7 mm por defeito) e o tipo de tecido.
 4. Veja a simulação, as direções do ponto e o percurso da agulha.
 5. Descarregue o DST. Teste sempre num retalho antes de produzir.
 
@@ -23,7 +23,7 @@ Para quem domina o Corel mas perde horas no software de bordado a acertar pontos
 - **Cetim rotativo nas curvas:** em traços curvos sem cruzamentos (S, C, O, D pequenos…) o ponto acompanha a curva; a densidade é medida pelo lado de fora e o lado de dentro leva pontos curtos alternados.
 - **Direções do ponto:** letras com pernas e cruzamentos (N, E, A…) são divididas em partes, cada uma com o ponto atravessado ao traço.
 - **Tipo de ponto:** cetim nas partes estreitas, tatami (enchimento) nas largas; cetim dividido acima de 6 mm.
-- **Durabilidade:** nenhum ponto acima de 7 mm, ponto de base (underlay), compensação de repuxo e remates.
+- **Durabilidade:** nenhum ponto acima do ponto máximo escolhido (6, 7, 8 ou 10 mm; 7 por defeito), ponto de base (underlay), compensação de repuxo e remates.
 - **Menos cortes:** liga as partes da mesma letra por baixo do bordado; só corta a linha entre letras (sequência de 3 saltos, como os programas Tajima).
 - **Várias cores (até 4 ou mais):** cada cor de preenchimento é uma linha; tons quase iguais juntam-se. Onde uma cor tapa outra, a de baixo é recortada (fica 0,35 mm de margem por baixo para não abrir fendas). A ordem de bordado muda-se na página e cada cor pode ser desligada (fica à vista do tecido). O DST leva as trocas de cor.
 - **PDF do Corel e do Illustrator:** cores CMYK, RGB, ICC, Lab e cores spot (Pantone, com o nome), máscaras de recorte.

@@ -429,7 +429,29 @@ export function findDesigns(shapes) {
     });
     return { shapes: idx, fundo, box };
   });
-  // desenhos muito pequenos ao lado de outros (ex.: um ponto perdido) juntam-se ao mais proximo
-  const big = designs.filter(d => (d.box[1] - d.box[0]) * (d.box[3] - d.box[2]) > 25);
-  return (big.length ? big : designs).sort((a, b) => a.shapes[0] - b.shapes[0]);
+  // peças do mesmo logotipo (ex.: simbolo + texto lado a lado) juntam-se: estao alinhadas,
+  // perto uma da outra (menos de 1x a menor altura) e NAO tem o mesmo tamanho
+  // (duas versoes do mesmo logotipo, com o mesmo tamanho, ficam separadas)
+  let list = designs.slice();
+  for (let changed = true; changed;) {
+    changed = false;
+    outer: for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+      const A = list[i].box, B = list[j].box;
+      const wA = A[1] - A[0], hA = A[3] - A[2], wB = B[1] - B[0], hB = B[3] - B[2];
+      const ox = Math.min(A[1], B[1]) - Math.max(A[0], B[0]), oy = Math.min(A[3], B[3]) - Math.max(A[2], B[2]);
+      const rowAligned = oy >= 0.5 * Math.min(hA, hB), colAligned = ox >= 0.5 * Math.min(wA, wB);
+      const gapX = Math.max(0, Math.max(A[0], B[0]) - Math.min(A[1], B[1])), gapY = Math.max(0, Math.max(A[2], B[2]) - Math.min(A[3], B[3]));
+      const lim = 1.0 * Math.min(Math.min(wA, hA), Math.min(wB, hB));
+      const near = (rowAligned && gapX < lim) || (colAligned && gapY < lim);
+      const r1 = wA / wB, r2 = hA / hB, same = r1 > 0.8 && r1 < 1.25 && r2 > 0.8 && r2 < 1.25;
+      if (near && !same) {
+        const M = { shapes: [...list[i].shapes, ...list[j].shapes].sort((a, b) => a - b), fundo: [...list[i].fundo, ...list[j].fundo],
+          box: [Math.min(A[0], B[0]), Math.max(A[1], B[1]), Math.min(A[2], B[2]), Math.max(A[3], B[3])] };
+        list.splice(j, 1); list[i] = M; changed = true; break outer;
+      }
+    }
+  }
+  // desenhos muito pequenos ao lado de outros (ex.: um ponto perdido) ficam de fora da escolha
+  const big = list.filter(d => (d.box[1] - d.box[0]) * (d.box[3] - d.box[2]) > 25);
+  return (big.length ? big : list).sort((a, b) => a.shapes[0] - b.shapes[0]);
 }

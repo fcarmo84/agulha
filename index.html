@@ -44,6 +44,14 @@
     <div class="campos">
       <label class="campo"><span>Largura</span><span class="com-unidade"><input id="largura" type="number" min="10" max="400" step="0.5" inputmode="decimal"><i>mm</i></span></label>
       <label class="campo"><span>Altura</span><span class="com-unidade"><input id="altura" type="number" min="5" max="400" step="0.5" inputmode="decimal"><i>mm</i></span></label>
+      <label class="campo"><span>Ponto máximo</span>
+        <select id="pontomax">
+          <option value="6">6 mm (lavagens duras)</option>
+          <option value="7" selected>7 mm (recomendado)</option>
+          <option value="8">8 mm</option>
+          <option value="10">10 mm (decorativo)</option>
+        </select>
+      </label>
       <label class="campo largo"><span>Tecido</span>
         <select id="tecido">
           <option value="normal">Normal (algodão, sarja)</option>
@@ -52,6 +60,7 @@
         </select>
       </label>
     </div>
+    <p class="nota">Ponto máximo: pontos maiores prendem e soltam com o uso. O cetim é dividido acima de 1 mm a menos (6 mm com o valor recomendado). Use 6 mm em roupa de trabalho e malhas; 8 a 10 mm só em peças decorativas.</p>
   </section>
 
   <section class="passo" id="passo3" aria-labelledby="t3" hidden>

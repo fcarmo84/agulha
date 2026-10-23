@@ -131,7 +131,8 @@ async function generate() {
     const k = w / n.w, cx = (n.x0 + n.x1) / 2, cy = (n.y0 + n.y1) / 2;
     const T = (rs) => rs.map(r => r.map(([x, y]) => [(x - cx) * k, (y - cy) * k]));
     const shapes = state.shapes.map(s => ({ color: s.color, name: s.name || null, rings: T(s.rings), clips: (s.clips || []).map(T) }));
-    const P = TECIDOS[$('#tecido').value] || {};
+    const T0 = TECIDOS[$('#tecido').value] || {}, mx = parseFloat($('#pontomax').value) || 7;
+    const P = { ...T0, max_stitch: mx, satin_max: Math.min(T0.satin_max ?? Infinity, mx - 1) };
     const t0 = performance.now();
     const r = await compute({ shapes, P, order: state.order, enabled: state.enabled },
       (p) => setStatus(`A calcular pontos e direções… ${Math.round(p * 100)} %`));
@@ -156,6 +157,12 @@ async function generate() {
 }
 
 // ------------------------------------------------------------------ mostrar
+function cmdsLong(cmds, lim) {
+  let n = 0, prev = null;
+  for (const [t, x, y] of cmds) { if (t === 'S' && prev && Math.hypot(x - prev[0], y - prev[1]) > lim * 10 + 0.5) n++; prev = [x, y]; }
+  return n;
+}
+
 function perColorStitches(cmds) {
   const out = [0]; let prev = null;
   for (const [t, x, y] of cmds) { if (t === 'C') out.push(0); else if (t === 'S' && prev) out[out.length - 1]++; prev = [x, y]; }
@@ -201,7 +208,10 @@ function showResult(avisos) {
   ].map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
   const ok = s.longos === 0;
   $('#durabilidade').className = 'selo ' + (ok ? 'bom' : 'atencao');
-  $('#durabilidade').textContent = ok ? 'Nenhum ponto acima de 7 mm' : `${s.longos} pontos acima de 7 mm (podem prender)`;
+  const lim = parseFloat($('#pontomax').value) || 7;
+  const longos = cmdsLong(cmds, lim);
+  $('#durabilidade').className = 'selo ' + (longos === 0 ? 'bom' : 'atencao');
+  $('#durabilidade').textContent = longos === 0 ? `Nenhum ponto acima de ${lim} mm` : `${longos} pontos acima de ${lim} mm (podem prender)`;
   renderColors();
   if (state.dstOnly) $('#bloco-cores').hidden = true;
   $('#avisos').innerHTML = avisos.map(a => `<li>${a}</li>`).join('');
@@ -275,6 +285,7 @@ $('#altura').addEventListener('input', () => {
   clearTimeout(deb); deb = setTimeout(generate, 600);
 });
 $('#tecido').addEventListener('change', generate);
+$('#pontomax').addEventListener('change', generate);
 $('#cores').addEventListener('click', (e) => {
   const b = e.target.closest('[data-mover]'); if (!b) return;
   const i = +b.dataset.mover, j = i + +b.dataset.dir;
