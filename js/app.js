@@ -1,4 +1,4 @@
-import { readPDF, readSVG } from './vetor.js';
+import { readPDF, readSVG, findDesigns } from './vetor.js';
 import { Grid } from './motor.js';
 import { writeDST, readDST, stats } from './dst.js';
 import { run as runLocal } from './trabalho.js';
@@ -47,17 +47,57 @@ async function openFile(file) {
   try {
     if (ext === 'dst') {
       const cmds = readDST(await file.arrayBuffer());
-      state.shapes = null; state.dstOnly = cmds; state.result = { cmds, info: [], groups: [{ color: [30, 50, 140] }] };
+      state.shapes = null; state.pdf = null; $('#escolha').hidden = true; state.dstOnly = cmds; state.result = { cmds, info: [], groups: [{ color: [30, 50, 140] }] };
       showResult([]); setStatus('A mostrar um DST existente (só visualização).'); return;
     }
     let r;
     if (ext === 'pdf') r = await readPDF(await file.arrayBuffer());
     else if (ext === 'svg') r = readSVG(await file.text());
     else throw new Error('Formato não suportado. Use PDF (recomendado) ou SVG.');
-    if (!r.shapes.length) throw new Error('Não encontrei formas preenchidas no ficheiro. ' + (r.warnings.includes('texto') ? 'O texto tem de ser convertido em curvas no Corel (Ctrl+Q).' : 'Confirme que o logótipo é vetorial.'));
-    loadShapes(r.shapes, r.warnings);
+    if (!r.shapes.length) throw new Error('Não encontrei formas preenchidas no ficheiro. ' + (r.warnings.includes('texto') ? 'O texto tem de ser convertido em curvas (Ctrl+Q no Corel, Ctrl+Shift+O no Illustrator).' : 'Confirme que o logótipo é vetorial.'));
+    state.pdf = { shapes: r.shapes, warnings: r.warnings, designs: findDesigns(r.shapes) };
+    state.design = 0; state.withFundo = false;
+    renderDesigns(); applyDesign();
   } catch (e) {
     console.error(e); setStatus(e.message, true);
+  }
+}
+
+// ------------------------------------------------------------------ varios desenhos no PDF
+function applyDesign() {
+  const { shapes, designs, warnings } = state.pdf, d = designs[state.design];
+  const idx = d.shapes.filter(i => state.withFundo || !d.fundo.includes(i));
+  loadShapes(idx.map(i => shapes[i]), warnings);
+}
+
+function renderDesigns() {
+  const { shapes, designs } = state.pdf, box = $('#escolha');
+  const d = designs[state.design];
+  const many = designs.length > 1, hasFundo = d.fundo.length > 0;
+  box.hidden = !many && !hasFundo;
+  if (box.hidden) return;
+  $('#escolha-texto').textContent = many ? `Este PDF tem ${designs.length} desenhos. Escolha qual quer bordar:` : 'Este desenho tem um fundo por trás.';
+  const wrap = $('#desenhos'); wrap.innerHTML = ''; wrap.hidden = !many;
+  designs.forEach((ds, i) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'desenho'; b.setAttribute('aria-pressed', i === state.design);
+    b.setAttribute('aria-label', `Desenho ${i + 1}`);
+    const cv = document.createElement('canvas'); cv.width = 240; cv.height = 120; b.appendChild(cv);
+    const ctx = cv.getContext('2d'), [x0, x1, y0, y1] = ds.box, k = Math.min(220 / (x1 - x0), 100 / (y1 - y0));
+    const ox = (240 - (x1 - x0) * k) / 2, oy = (120 - (y1 - y0) * k) / 2;
+    for (const si of ds.shapes) {
+      const sh = shapes[si]; ctx.beginPath();
+      for (const r of sh.rings) r.forEach(([x, y], j) => { const X = ox + (x - x0) * k, Y = 120 - (oy + (y - y0) * k); j ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); });
+      ctx.fillStyle = `rgb(${sh.color.join(',')})`; ctx.globalAlpha = ds.fundo.includes(si) ? 0.35 : 1; ctx.fill('evenodd');
+    }
+    const cap = document.createElement('span'); cap.textContent = `Desenho ${i + 1}` + (ds.fundo.length ? ' · com fundo' : ''); b.appendChild(cap);
+    b.addEventListener('click', () => { state.design = i; state.withFundo = false; renderDesigns(); applyDesign(); });
+    wrap.appendChild(b);
+  });
+  const op = $('#fundo-op'); op.hidden = !hasFundo;
+  if (hasFundo) {
+    const c = shapes[d.fundo[0]].color;
+    $('#fundo-cor').innerHTML = `<span class="amostra pequena" style="background:rgb(${c.join(',')})"></span>`;
+    $('#fundo').checked = state.withFundo;
   }
 }
 
@@ -101,6 +141,8 @@ async function generate() {
     for (const m of r.meta) if (state.enabled[m.key] === undefined) state.enabled[m.key] = true;
     const avisos = (state.warnings || []).map(w => AVISOS[w]).filter(Boolean);
     const finos = r.info.flatMap(x => x.parts).filter(p => p.w > 0 && p.w < 0.8).length;
+    if (r.hairlines) avisos.push(`${r.hairlines} linhas finíssimas (menos de 0,3 mm à escala do bordado) foram ignoradas: não se conseguem bordar.`);
+    if (state.pdf && state.pdf.designs[state.design].fundo.length && !state.withFundo) avisos.push('O retângulo de fundo por trás do logótipo não é bordado (o tecido faz de fundo). Pode ativá-lo no passo 1.');
     if (finos) avisos.push(`Há ${finos} partes com traço mais fino que 0,8 mm. Podem ficar falhadas. Se possível, aumente o tamanho do bordado.`);
     const nOn = r.meta.filter(m => state.enabled[m.key]).length;
     if (nOn > 4) avisos.push(`O desenho tem ${nOn} cores a bordar. Se a máquina tiver menos agulhas do que isso, vai ser preciso trocar linhas a meio ou juntar cores (desligue as que não quer bordar).`);
@@ -211,7 +253,7 @@ function exemplo() {
     { color: [24, 44, 120], rings: [star(17, 7)] },
     { color: [24, 44, 120], rings: [[[-14, -15], [14, -15], [14, -19], [-14, -19]]] },
   ];
-  state.name = 'exemplo';
+  state.name = 'exemplo'; state.pdf = null; $('#escolha').hidden = true;
   loadShapes(shapes, []);
   $('#largura').value = 60; syncAltura(); generate();
 }
@@ -223,6 +265,7 @@ zone.addEventListener('dragleave', () => zone.classList.remove('sobre'));
 zone.addEventListener('drop', (e) => { e.preventDefault(); zone.classList.remove('sobre'); const f = e.dataTransfer.files[0]; if (f) openFile(f); });
 $('#ficheiro').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) openFile(f); e.target.value = ''; });
 $('#exemplo').addEventListener('click', exemplo);
+$('#fundo').addEventListener('change', (e) => { state.withFundo = e.target.checked; applyDesign(); });
 let deb;
 $('#largura').addEventListener('input', () => { syncAltura(); clearTimeout(deb); deb = setTimeout(generate, 600); });
 $('#altura').addEventListener('input', () => {

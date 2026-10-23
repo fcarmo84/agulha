@@ -129,3 +129,12 @@ select { font: inherit; font-weight: 400; color: var(--texto); background: var(-
 .rodape { margin: 0; color: var(--suave); font-size: 14px; max-width: 75ch; }
 .rodape a { color: var(--indigo); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+.escolha { display: grid; gap: 10px; padding-top: 4px; }
+.escolha p { margin: 0; font-weight: 700; }
+.desenhos { display: flex; flex-wrap: wrap; gap: 10px; }
+.desenho { display: grid; gap: 6px; justify-items: center; padding: 8px; background: var(--fundo); border: 2px solid var(--linha); color: var(--texto); max-width: 100%; }
+.desenho canvas { width: 240px; max-width: 100%; height: auto; background: #f4f3ef; border-radius: 6px; }
+.desenho span { font-size: 14px; }
+.desenho[aria-pressed="true"] { border-color: var(--indigo); box-shadow: 0 0 0 3px color-mix(in srgb, var(--indigo) 20%, transparent); }
+.amostra.pequena { display: inline-block; width: 16px; height: 16px; vertical-align: -3px; }

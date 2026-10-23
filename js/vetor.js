@@ -398,3 +398,38 @@ function dropBackground(shapes) {
     const b = bb(s.rings); return !(i < 2 && (b[1] - b[0]) * (b[3] - b[2]) > 0.9 * A);
   });
 }
+
+// ------------------------------------------------------------------ varios desenhos na mesma pagina
+// Junta as formas em grupos separados por espaco vazio (ex.: o logotipo em versao clara e escura
+// lado a lado) e marca retangulos de fundo por tras de um desenho.
+export function findDesigns(shapes) {
+  const bb = (rs) => { let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity; for (const r of rs) for (const [x, y] of r) { a = Math.min(a, x); b = Math.max(b, x); c = Math.min(c, y); d = Math.max(d, y); } return [a, b, c, d]; };
+  const boxes = shapes.map(s => bb(s.rings));
+  const all = bb(shapes.flatMap(s => s.rings));
+  const gap = Math.max(3, 0.03 * Math.hypot(all[1] - all[0], all[3] - all[2]));
+  const parent = shapes.map((_, i) => i);
+  const find = (i) => { while (parent[i] !== i) i = parent[i] = parent[parent[i]]; return i; };
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+    const A = boxes[i], B = boxes[j];
+    if (A[0] - gap <= B[1] && B[0] - gap <= A[1] && A[2] - gap <= B[3] && B[2] - gap <= A[3]) parent[find(i)] = find(j);
+  }
+  const groups = new Map();
+  shapes.forEach((s, i) => { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(i); });
+  const area = (r) => { let s = 0; for (let i = 0; i < r.length; i++) { const p = r[i], q = r[(i + 1) % r.length]; s += p[0] * q[1] - q[0] * p[1]; } return Math.abs(s / 2); };
+  const designs = [...groups.values()].map(idx => {
+    const box = bb(idx.flatMap(i => shapes[i].rings));
+    const boxA = (box[1] - box[0]) * (box[3] - box[2]);
+    // fundo: retangulo (ou quase) que ocupa a maior parte do desenho e tem formas por cima
+    const fundo = idx.filter((i, k) => {
+      const s = shapes[i]; if (s.rings.length !== 1) return false;
+      const b = boxes[i], bA = (b[1] - b[0]) * (b[3] - b[2]);
+      if (area(s.rings[0]) < 0.9 * bA || bA < 0.5 * boxA) return false;
+      const above = idx.slice(k + 1).filter(j => boxes[j][0] >= b[0] - 0.5 && boxes[j][1] <= b[1] + 0.5 && boxes[j][2] >= b[2] - 0.5 && boxes[j][3] <= b[3] + 0.5);
+      return above.length >= 3;
+    });
+    return { shapes: idx, fundo, box };
+  });
+  // desenhos muito pequenos ao lado de outros (ex.: um ponto perdido) juntam-se ao mais proximo
+  const big = designs.filter(d => (d.box[1] - d.box[0]) * (d.box[3] - d.box[2]) > 25);
+  return (big.length ? big : designs).sort((a, b) => a.shapes[0] - b.shapes[0]);
+}

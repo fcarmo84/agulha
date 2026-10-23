@@ -23,6 +23,8 @@ export function colorName(rgb) {
   if (l < 0.35 && (h < 50 || h > 330)) return h < 15 || h > 330 ? 'Bordô' : 'Castanho escuro';
   if (h < 15 || h >= 345) return l > 0.75 ? 'Rosa' : 'Vermelho';
   if (h < 40) return l > 0.65 ? 'Bege' : l < 0.45 ? 'Castanho' : 'Laranja';
+  const sat = d / (255 - Math.abs(mx + mn - 255) || 1);
+  if (h < 75 && sat > 0.6 && l > 0.4) return h < 45 ? 'Laranja' : 'Amarelo';
   if (h < 65) return l > 0.65 ? 'Creme' : 'Amarelo torrado';
   if (h < 75) return 'Amarelo';
   if (h < 160) return l < 0.3 ? 'Verde escuro' : 'Verde';
@@ -119,13 +121,24 @@ function simplify(ring, eps) {
   const A = dp(pts.slice(0, h + 1)), B = dp(pts.slice(h).concat([pts[0]]));
   return A.slice(0, -1).concat(B.slice(0, -1));
 }
+const signedArea = (r) => { let s = 0; for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length]; s += a[0] * b[1] - b[0] * a[1]; } return s / 2; };
 const ringArea = (r) => { let s = 0; for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length]; s += a[0] * b[1] - b[0] * a[1]; } return Math.abs(s / 2); };
 
 // ---------------------------------------------------------------- principal
 // shapes: [{color, name, rings, clips}] em mm, pela ordem de pintura (de baixo para cima)
 // devolve { groups: [{color, name, rings, exact}], merged }
 export function prepareLayers(shapes, opt = {}) {
-  const overlap = opt.overlap ?? 0.35, tol = opt.mergeTol ?? 10;
+  const overlap = opt.overlap ?? 0.35, tol = opt.mergeTol ?? 10, minW = opt.minWidth ?? 0.3;
+  // linhas finissimas (ex.: contornos de 0,1 mm do Illustrator) nao se bordam: ficam de fora
+  let hairlines = 0;
+  shapes = shapes.filter(s => {
+    let A = 0, P = 0;
+    for (const r of s.rings) { A += ringArea(r) * (Math.sign(signedArea(r)) || 1); for (let i = 0; i < r.length; i++) { const p = r[i], q = r[(i + 1) % r.length]; P += Math.hypot(q[0] - p[0], q[1] - p[1]); } }
+    const w = 2 * Math.abs(A) / Math.max(P, 1e-9);
+    if (w < minW) { hairlines++; return false; }
+    return true;
+  });
+  if (!shapes.length) return { groups: [], res: 0.1, hairlines };
   // 1) cor de linha de cada forma (tons quase iguais juntam-se)
   const groups = [];
   const gid = shapes.map((s) => {
@@ -170,5 +183,5 @@ export function prepareLayers(shapes, opt = {}) {
     const rings = contours(grown, cv).map(r => simplify(r, res * 0.6)).filter(r => ringArea(r) > 0.4);
     return { color: G.color, name: G.name, rings, exact: false };
   }).filter(G => G.rings.length);
-  return { groups: out, res };
+  return { groups: out, res, hairlines };
 }
