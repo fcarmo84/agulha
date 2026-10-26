@@ -8,8 +8,9 @@ export const RES = 0.1; // mm por pixel na analise
 
 export const PARAM = {
   satin_max: 6.0,
-  satin_spacing: 0.40,
-  satin_spacing_fino: 0.40,
+  satin_spacing: 0.30,       // mm entre pontas do mesmo lado, cetim largo (> 2,5 mm), como no DG17 feito a mao
+  satin_spacing_medio: 0.35, // 1,2 a 2,5 mm
+  satin_spacing_fino: 0.40,  // < 1,2 mm (texto pequeno)
   fill_spacing: 0.42,
   fill_len: 3.5,
   run_len: 2.0,
@@ -405,19 +406,22 @@ function splitLine(u0, u1, L) {
   return o;
 }
 
+// espacamento do cetim conforme a largura do traco
+export function satinSpacing(w, P) {
+  return w < 1.2 ? P.satin_spacing_fino : w < 2.5 ? (P.satin_spacing_medio ?? P.satin_spacing) : P.satin_spacing;
+}
+
+// cetim "direito + inclinado" (como no DG17): em cada linha um ponto direito de lado a lado,
+// e o regresso inclinado para a linha seguinte. As pontas de cada lado ficam alinhadas.
 function satin(rows, R, P) {
   const blocks = [];
   for (const blk of chain(rows)) {
     const pts = [];
-    blk.forEach(([i, k], idx) => {
-      const v = rows[i][0]; const [u0, u1, e0, e1] = rows[i][1][k];
-      const w = u1 - u0, pc = Math.min(0.3, Math.max(0.1, 0.1 + 0.04 * w));
-      const u = idx % 2 === 0 ? u0 - (e0 ? pc : 0) : u1 + (e1 ? pc : 0);
-      const p = toXY(R, u, v);
+    const add = (p, idx) => {
       if (pts.length) {
         const q = pts[pts.length - 1], d = dist(p, q);
-        if (d > P.satin_max) { // cetim dividido
-          const n = Math.ceil(d / (P.satin_max * 0.75)), sh = (Math.floor(idx / 2) % 2) ? 0.12 : -0.12;
+        if (d > P.satin_max) { // cetim dividido, pontos desencontrados
+          const n = Math.ceil(d / (P.satin_max * 0.75)), sh = (idx % 2) ? 0.12 : -0.12;
           for (let kk = 1; kk < n; kk++) {
             const f = Math.min(0.95, Math.max(0.05, kk / n + sh / n));
             pts.push([q[0] + (p[0] - q[0]) * f, q[1] + (p[1] - q[1]) * f]);
@@ -425,6 +429,12 @@ function satin(rows, R, P) {
         }
       }
       pts.push(p);
+    };
+    blk.forEach(([i, k], idx) => {
+      const v = rows[i][0]; const [u0, u1, e0, e1] = rows[i][1][k];
+      const w = u1 - u0, pc = Math.min(0.3, Math.max(0.1, 0.1 + 0.04 * w));
+      add(toXY(R, u0 - (e0 ? pc : 0), v), idx);
+      add(toXY(R, u1 + (e1 ? pc : 0), v), idx);
     });
     if (pts.length > 1) blocks.push(pts);
   }
@@ -550,7 +560,7 @@ export function digitizeRegion(rings, P, info) {
       for (const b of underlay(cutRows(u.rows, u.R, g, small, 0.6, eb), u.R, P)) blocks.push({ pts: b, kind: 'base' });
     }
     if (isSatin) {
-      const sp = (wm < 1.2 ? P.satin_spacing_fino : P.satin_spacing) / P.density / 2;
+      const sp = satinSpacing(wm, P) / P.density;
       const r = scan(rings, a, sp, 0, [ea[2], ea[3]]);
       for (const b of satin(cutRows(r.rows, r.R, g, big, 0.25, ea), r.R, P)) blocks.push({ pts: b, kind: 'cetim' });
     } else {

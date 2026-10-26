@@ -1,3 +1,4 @@
+import { satinSpacing } from './motor.js';
 // Cetim rotativo: para tracos curvos sem cruzamentos (S, C, O, U...), o ponto
 // acompanha a curva. Linha central = esqueleto da forma; em cada ponto da linha
 // central lanca-se a perpendicular ate as bordas exatas do vetor (os "carris").
@@ -342,7 +343,7 @@ function fillQuad(m, g, q) {
 // da curva) avancou meio espacamento desde o ultimo ponto: assim cada lado fica com
 // 'sp' entre pontos no lado de fora; o lado de dentro fica mais denso e leva pontos curtos.
 export function turningSatin(col, P) {
-  const sp = (col.wmed < 1.2 ? P.satin_spacing_fino : P.satin_spacing) / (P.density || 1);
+  const sp = satinSpacing(col.wmed, P) / (P.density || 1);
   const pts = []; let last = null, side = 0, prevSame = [null, null], shortToggle = false;
   const pcOf = (w) => Math.min(0.3, Math.max(0.1, 0.1 + 0.04 * w));
   const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
@@ -357,37 +358,39 @@ export function turningSatin(col, P) {
     let t0 = 0;
     // pode haver varios pontos dentro do mesmo troco (lado de fora a andar depressa)
     for (let guard = 0; guard < 20; guard++) {
-      if (moved(at(i, 1)) < sp / 2) break;
+      if (moved(at(i, 1)) < sp) break;
       let lo = t0, hi = 1;
-      for (let it = 0; it < 18; it++) { const m = (lo + hi) / 2; if (moved(at(i, m)) < sp / 2) lo = m; else hi = m; }
+      for (let it = 0; it < 18; it++) { const m = (lo + hi) / 2; if (moved(at(i, m)) < sp) lo = m; else hi = m; }
       last = at(i, hi); stations.push(last); t0 = hi;
     }
   }
-  last = null; let stIdx = 0;
+  // cada estacao: ponto direito de um lado ao outro (L -> R) e regresso inclinado para a seguinte,
+  // como no cetim feito a mao no DG17 (pontas de cada lado alinhadas)
+  let stIdx = 0;
   for (const r of stations) {
     stIdx++;
-    const isL = side === 0;
-    let rail = isL ? r.L : r.R;
-    const pc = pcOf(r.w);
-    const out = [rail[0] - r.c[0], rail[1] - r.c[1]], ol = Math.hypot(out[0], out[1]) || 1;
-    rail = [rail[0] + out[0] / ol * pc, rail[1] + out[1] / ol * pc];
-    // lado de dentro apertado: encurtar um ponto sim, um nao (evita amontoar linha)
-    const ps = prevSame[side];
-    if (ps && dist(ps, rail) < sp * 0.6) {
-      shortToggle = !shortToggle;
-      if (shortToggle) rail = [r.c[0] + (rail[0] - r.c[0]) * 0.6, r.c[1] + (rail[1] - r.c[1]) * 0.6];
-    }
-    if (pts.length) {
-      const q = pts[pts.length - 1], d = dist(q, rail);
-      if (d > P.satin_max) {
-        // passagem larga: dividir em pontos de ~3,5 mm, desencontrados em 3 fases (como o tatami)
-        const L = P.fill_len || 3.5, k = Math.max(2, Math.ceil(d / L)), ph = ((stIdx % 3) - 1) / 3;
-        for (let j = 1; j < k; j++) { const f = Math.min(0.94, Math.max(0.06, (j + ph * 0.8) / k)); pts.push([q[0] + (rail[0] - q[0]) * f, q[1] + (rail[1] - q[1]) * f]); }
+    for (const sd of [0, 1]) {
+      let rail = sd === 0 ? r.L : r.R;
+      const pc = pcOf(r.w);
+      const out = [rail[0] - r.c[0], rail[1] - r.c[1]], ol = Math.hypot(out[0], out[1]) || 1;
+      rail = [rail[0] + out[0] / ol * pc, rail[1] + out[1] / ol * pc];
+      // lado de dentro da curva apertado: encurtar um ponto sim, um nao (evita amontoar linha)
+      const ps = prevSame[sd];
+      if (ps && dist(ps, rail) < sp * 0.6) {
+        shortToggle = !shortToggle;
+        if (shortToggle) rail = [r.c[0] + (rail[0] - r.c[0]) * 0.6, r.c[1] + (rail[1] - r.c[1]) * 0.6];
       }
+      if (pts.length) {
+        const q = pts[pts.length - 1], d = dist(q, rail);
+        if (d > P.satin_max) {
+          // passagem larga: dividir em pontos de ~3,5 mm, desencontrados em 3 fases (como o tatami)
+          const L = P.fill_len || 3.5, k = Math.max(2, Math.ceil(d / L)), ph = ((stIdx % 3) - 1) / 3;
+          for (let j = 1; j < k; j++) { const f = Math.min(0.94, Math.max(0.06, (j + ph * 0.8) / k)); pts.push([q[0] + (rail[0] - q[0]) * f, q[1] + (rail[1] - q[1]) * f]); }
+        }
+      }
+      pts.push(rail);
+      prevSame[sd] = rail;
     }
-    pts.push(rail);
-    prevSame[side] = rail;
-    side = 1 - side;
   }
   return pts;
 }
