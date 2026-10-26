@@ -2,7 +2,7 @@ import { readPDF, readSVG, findDesigns } from './vetor.js';
 import { Grid } from './motor.js';
 import { writeDST, readDST, stats } from './dst.js';
 import { run as runLocal } from './trabalho.js';
-import { drawStitches, drawDirections, drawPath } from './visual.js';
+import { drawStitches, drawDirections, drawPath, drawThin } from './visual.js';
 
 const $ = (s) => document.querySelector(s);
 const state = { shapes: null, natural: null, name: 'bordado', result: null, view: 'bordado', dstOnly: null, order: null, enabled: {} };
@@ -144,7 +144,7 @@ async function generate() {
     const finos = r.info.flatMap(x => x.parts).filter(p => p.w > 0 && p.w < 0.8).length;
     if (r.hairlines) avisos.push(`${r.hairlines} linhas finíssimas (menos de 0,3 mm à escala do bordado) foram ignoradas: não se conseguem bordar.`);
     if (state.pdf && state.pdf.designs[state.design].fundo.length && !state.withFundo) avisos.push('O retângulo de fundo por trás do logótipo não é bordado (o tecido faz de fundo). Pode ativá-lo no passo 1.');
-    if (finos) avisos.push(`Há ${finos} partes com traço mais fino que 0,8 mm. Podem ficar falhadas. Se possível, aumente o tamanho do bordado.`);
+    if (finos) avisos.push(`Há ${finos} partes com traço mais fino que 0,8 mm. Podem ficar falhadas. Se possível, aumente o tamanho do bordado. <button type="button" class="ligacao" data-ir="finos">Ver onde estão</button>`);
     const nOn = r.meta.filter(m => state.enabled[m.key]).length;
     if (nOn > 4) avisos.push(`O desenho tem ${nOn} cores a bordar. Se a máquina tiver menos agulhas do que isso, vai ser preciso trocar linhas a meio ou juntar cores (desligue as que não quer bordar).`);
     showResult(avisos);
@@ -217,6 +217,10 @@ function showResult(avisos) {
   $('#avisos').innerHTML = avisos.map(a => `<li>${a}</li>`).join('');
   $('#avisos').hidden = !avisos.length;
   $('#vista-direcoes').disabled = !state.result.info.length;
+  const nFinos = state.result.info.flatMap(x => x.parts).filter(p => p.w > 0 && p.w < 0.8).length;
+  $('#vista-finos').disabled = !nFinos;
+  $('#vista-finos').textContent = nFinos ? `Traço < 0,8 mm (${nFinos})` : 'Traço < 0,8 mm';
+  if (!nFinos && state.view === 'finos') setView('bordado');
   draw();
 }
 
@@ -233,11 +237,13 @@ function draw() {
   const colors = state.result.groups.map(g => g.color);
   if (state.view === 'bordado') drawStitches(cv, cmds, colors, css.getPropertyValue('--tecido').trim());
   else if (state.view === 'direcoes') drawDirections(cv, state.result.info, cmds);
+  else if (state.view === 'finos') drawThin(cv, state.result.info, cmds, 0.8);
   else drawPath(cv, cmds, css.getPropertyValue('--tinta').trim(), css.getPropertyValue('--salto').trim());
   $('#legenda').textContent = {
     bordado: 'Simulação do bordado na máquina.',
     direcoes: 'Cada cor é uma parte do desenho. Os tracinhos mostram a direção do ponto.',
     percurso: 'Percurso da agulha. A tracejado vermelho: saltos com corte de linha.',
+    finos: 'A vermelho: partes com traço mais fino que 0,8 mm (as pequenas têm um círculo à volta). A cinzento: o resto do desenho.',
   }[state.view];
 }
 
@@ -300,12 +306,15 @@ $('#cores').addEventListener('change', (e) => {
   generate();
 });
 $('#descarregar').addEventListener('click', download);
-for (const b of document.querySelectorAll('[data-vista]')) {
-  b.addEventListener('click', () => {
-    state.view = b.dataset.vista;
-    for (const o of document.querySelectorAll('[data-vista]')) o.setAttribute('aria-pressed', o === b);
-    draw();
-  });
+function setView(v) {
+  state.view = v;
+  for (const o of document.querySelectorAll('[data-vista]')) o.setAttribute('aria-pressed', o.dataset.vista === v);
+  draw();
 }
+for (const b of document.querySelectorAll('[data-vista]')) b.addEventListener('click', () => setView(b.dataset.vista));
+$('#avisos').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-ir]'); if (!b) return;
+  setView(b.dataset.ir); $('.quadro').scrollIntoView({ behavior: 'smooth', block: 'center' });
+});
 window.addEventListener('resize', () => { clearTimeout(window._rz); window._rz = setTimeout(draw, 150); });
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', draw);

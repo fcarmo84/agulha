@@ -138,3 +138,5 @@ select { font: inherit; font-weight: 400; color: var(--texto); background: var(-
 .desenho span { font-size: 14px; }
 .desenho[aria-pressed="true"] { border-color: var(--indigo); box-shadow: 0 0 0 3px color-mix(in srgb, var(--indigo) 20%, transparent); }
 .amostra.pequena { display: inline-block; width: 16px; height: 16px; vertical-align: -3px; }
+
+.ligacao { background: none; border: 0; padding: 0; color: var(--indigo); font-weight: 700; text-decoration: underline; cursor: pointer; font-size: inherit; }

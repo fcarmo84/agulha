@@ -124,3 +124,43 @@ export function drawDirections(canvas, info, cmds, ink) {
     }
   }
 }
+
+// tracos finos: desenho esbatido, partes abaixo do limite a vermelho e com um circulo a volta
+export function drawThin(canvas, info, cmds, limit = 0.8) {
+  const ctx = canvas.getContext('2d'), W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  if (!cmds.length) return 0;
+  const { k, f } = frame(cmds, W, H, 24);
+  const img = ctx.getImageData(0, 0, W, H);
+  const marks = [];
+  for (const reg of info) {
+    const g = reg.grid;
+    const [ax, ay] = f(g.x0 * 10, g.y1 * 10), [bx, by] = f((g.x0 + g.W * g.res) * 10, (g.y1 - g.H * g.res) * 10);
+    const thin = new Map(reg.parts.map(p => [p.id, p.w > 0 && p.w < limit]));
+    const acc = new Map();
+    for (let py = Math.max(0, Math.floor(ay)); py < Math.min(H, Math.ceil(by)); py++) {
+      for (let px = Math.max(0, Math.floor(ax)); px < Math.min(W, Math.ceil(bx)); px++) {
+        const mx = g.x0 + (px - ax) / k / 10, my = g.y1 - (py - ay) / k / 10;
+        const id = g.look(reg.labels, mx, my);
+        if (!id || !thin.has(id)) continue;
+        const t = thin.get(id), i = (py * W + px) * 4;
+        const c = t ? [214, 40, 40] : [200, 200, 205];
+        img.data[i] = c[0]; img.data[i + 1] = c[1]; img.data[i + 2] = c[2]; img.data[i + 3] = 255;
+        if (t) { const a = acc.get(id) || { x0: px, x1: px, y0: py, y1: py }; a.x0 = Math.min(a.x0, px); a.x1 = Math.max(a.x1, px); a.y0 = Math.min(a.y0, py); a.y1 = Math.max(a.y1, py); acc.set(id, a); }
+      }
+    }
+    for (const [id, a] of acc) marks.push({ ...a, w: reg.parts.find(p => p.id === id).w });
+  }
+  ctx.putImageData(img, 0, 0);
+  // circulos a volta de cada parte fina (para se verem mesmo quando sao pequenas)
+  ctx.strokeStyle = 'rgba(214,40,40,.9)'; ctx.lineWidth = 2;
+  const dpr = window.devicePixelRatio || 1;
+  for (const m of marks) {
+    const diag = Math.hypot(m.x1 - m.x0, m.y1 - m.y0);
+    if (diag > 40 * dpr) continue; // partes compridas ja se veem pelo vermelho
+    const cx = (m.x0 + m.x1) / 2, cy = (m.y0 + m.y1) / 2;
+    const r = Math.max(8 * dpr, diag / 2 + 4 * dpr);
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.stroke();
+  }
+  return marks.length;
+}
