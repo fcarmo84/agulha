@@ -136,7 +136,7 @@ export function drawThin(canvas, info, cmds, limit = 0.8, hairRings = []) {
   for (const reg of info) {
     const g = reg.grid;
     const [ax, ay] = f(g.x0 * 10, g.y1 * 10), [bx, by] = f((g.x0 + g.W * g.res) * 10, (g.y1 - g.H * g.res) * 10);
-    const thin = new Map(reg.parts.map(p => [p.id, p.w > 0 && p.w < limit]));
+    const thin = new Map(reg.parts.map(p => [p.id, limit > 0 && p.w > 0 && p.w < limit]));
     const acc = new Map();
     for (let py = Math.max(0, Math.floor(ay)); py < Math.min(H, Math.ceil(by)); py++) {
       for (let px = Math.max(0, Math.floor(ax)); px < Math.min(W, Math.ceil(bx)); px++) {
