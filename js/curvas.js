@@ -8,7 +8,7 @@ const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 
 // ---------------------------------------------------------------- esqueleto
 // Afinamento de Zhang-Suen sobre a mascara (1 = forma)
-function thin(mask, W, H) {
+export function thin(mask, W, H) {
   const m = Uint8Array.from(mask);
   const del = [];
   let changed = true;
@@ -37,7 +37,7 @@ function thin(mask, W, H) {
   return m;
 }
 
-function neighbors8(i, W, H, sk) {
+export function neighbors8(i, W, H, sk) {
   const r = (i / W) | 0, c = i - r * W, out = [];
   for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
     if (!dr && !dc) continue;
@@ -48,7 +48,7 @@ function neighbors8(i, W, H, sk) {
 }
 
 // distancia de cada pixel da forma a borda (chamfer 3-4, em pixeis)
-function distanceTransform(mask, W, H) {
+export function distanceTransform(mask, W, H) {
   const D = new Float32Array(W * H);
   for (let i = 0; i < D.length; i++) D[i] = mask[i] ? 1e9 : 0;
   const at = (r, c) => (r < 0 || r >= H || c < 0 || c >= W) ? 0 : D[r * W + c];
@@ -123,7 +123,7 @@ function trace(sk, W, H) {
 }
 
 // ---------------------------------------------------------------- geometria
-function smooth(pts, win, loop) {
+export function smooth(pts, win, loop) {
   const n = pts.length, out = [];
   for (let i = 0; i < n; i++) {
     let sx = 0, sy = 0, k = 0;
@@ -137,7 +137,7 @@ function smooth(pts, win, loop) {
   return out;
 }
 
-function resample(pts, step, loop) {
+export function resample(pts, step, loop) {
   const src = loop ? [...pts, pts[0]] : pts;
   const out = [src[0]]; let acc = 0;
   for (let i = 0; i + 1 < src.length; i++) {
@@ -151,7 +151,7 @@ function resample(pts, step, loop) {
 }
 
 // distancia ao longo de +dir ate a borda mais proxima do poligono
-function rayHit(rings, p, d, maxS) {
+export function rayHit(rings, p, d, maxS) {
   let best = Infinity;
   for (const r of rings) {
     const n = r.length;
@@ -325,7 +325,7 @@ export function turningColumn(rings, g, P) {
   return { rails: R, loop, wmed, line };
 }
 
-function fillQuad(m, g, q) {
+export function fillQuad(m, g, q) {
   const P = q.map(([x, y]) => g.px(x, y));
   let ymin = Infinity, ymax = -Infinity;
   for (const p of P) { ymin = Math.min(ymin, p[1]); ymax = Math.max(ymax, p[1]); }
@@ -349,7 +349,7 @@ export function turningSatin(col, P) {
   const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
   const at = (i, t) => {
     const a = col.rails[i], b = col.rails[Math.min(i + 1, col.rails.length - 1)];
-    return { c: lerp(a.c, b.c, t), L: lerp(a.L, b.L, t), R: lerp(a.R, b.R, t), w: a.w + (b.w - a.w) * t };
+    return { c: lerp(a.c, b.c, t), L: lerp(a.L, b.L, t), R: lerp(a.R, b.R, t), w: a.w + (b.w - a.w) * t, eL: a.eL !== false && b.eL !== false, eR: a.eR !== false && b.eR !== false };
   };
   const moved = (r) => Math.max(dist(r.L, last.L), dist(r.R, last.R));
   const stations = [];
@@ -371,7 +371,7 @@ export function turningSatin(col, P) {
     stIdx++;
     for (const sd of [0, 1]) {
       let rail = sd === 0 ? r.L : r.R;
-      const pc = pcOf(r.w);
+      const pc = (sd === 0 ? r.eL : r.eR) === false ? 0 : pcOf(r.w);
       const out = [rail[0] - r.c[0], rail[1] - r.c[1]], ol = Math.hypot(out[0], out[1]) || 1;
       rail = [rail[0] + out[0] / ol * pc, rail[1] + out[1] / ol * pc];
       // lado de dentro da curva apertado: encurtar um ponto sim, um nao (evita amontoar linha)

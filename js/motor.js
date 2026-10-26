@@ -22,6 +22,7 @@ export const PARAM = {
 };
 
 import { turningColumn, turningSatin, turningUnderlay } from './curvas.js';
+import { strokeColumns } from './colunas.js';
 
 const D2R = Math.PI / 180;
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -518,7 +519,15 @@ export function digitizeRegion(rings, P, info) {
       return sequence([part], g, P);
     }
   }
-  // 2) caso geral: dividir em partes com direcao fixa
+  // 2) letra com pernas e juncoes (E, N, A...): um traco = uma coluna de cetim, cantos em meia-esquadria
+  if (P.tracos !== false) {
+    const sc = strokeColumns(rings, g, P);
+    if (sc) {
+      if (info) info.push({ grid: g, labels: sc.labels, parts: sc.parts });
+      return sequence(sc.parts, g, P);
+    }
+  }
+  // 3) caso geral: dividir em partes com direcao fixa
   const { L, angles } = splitParts(g, P);
   const parts = [];
   const gmaskEroded = erode(g.mask, W, H, Math.max(1, Math.round(3 * RES / g.res)));
