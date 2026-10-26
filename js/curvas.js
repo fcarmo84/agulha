@@ -199,7 +199,7 @@ export function turningColumn(rings, g, P) {
   {
     let A = 0, per = 0;
     rings.forEach((r, k) => { let s = 0; for (let i = 0; i < r.length; i++) { const p = r[i], q = r[(i + 1) % r.length]; s += p[0] * q[1] - q[0] * p[1]; per += Math.hypot(q[0] - p[0], q[1] - p[1]); } A += (k === 0 ? 1 : -1) * Math.abs(s / 2); });
-    if (2 * A / Math.max(per, 1e-6) > P.satin_max * 0.75) { _why = 'largo (rapido)'; return null; }
+    if (2 * A / Math.max(per, 1e-6) > P.satin_max * 2.2) { _why = 'largo (rapido)'; return null; }
   }
   const { W, H } = g;
   const sk = thin(g.mask, W, H);
@@ -234,7 +234,8 @@ export function turningColumn(rings, g, P) {
   if (!widths.length) { _why = 'sem largura'; return null; }
   widths.sort((a, b) => a - b);
   const wmed = widths[widths.length >> 1];
-  if (wmed > P.satin_max * 1.05) { _why = 'largo ' + wmed.toFixed(2); return null; }
+  // tracos largos tambem servem: acima do cetim maximo os pontos sao divididos (enchimento que acompanha a curva)
+  if (wmed > P.satin_max * 3) { _why = 'largo ' + wmed.toFixed(2); return null; }
   let extFrom = 0, extTo = 0;
   if (line.length * RES < wmed * 2.2) { _why = 'curto'; return null; }
   line = resample(smooth(line, Math.max(2, Math.round(wmed * 0.5 / RES)), loop), 0.1, loop);
@@ -277,7 +278,7 @@ export function turningColumn(rings, g, P) {
     else { a = line[Math.max(0, i - tw)]; b = line[Math.min(n - 1, i + tw)]; }
     const tx = b[0] - a[0], ty = b[1] - a[1], L = Math.hypot(tx, ty) || 1;
     const nn = [-ty / L, tx / L], c = line[i];
-    const s1 = rayHit(rings, c, nn, P.satin_max * 1.6), s2 = rayHit(rings, c, [-nn[0], -nn[1]], P.satin_max * 1.6);
+    const s1 = rayHit(rings, c, nn, P.satin_max * 4), s2 = rayHit(rings, c, [-nn[0], -nn[1]], P.satin_max * 4);
     if (s1 === null || s2 === null) { missing++; continue; }
     // centro fora da letra (pontas suavizadas) ou largura absurda: ignorar este carril
     const main = i >= extFrom && i < extTo;
@@ -362,8 +363,9 @@ export function turningSatin(col, P) {
       last = at(i, hi); stations.push(last); t0 = hi;
     }
   }
-  last = null;
+  last = null; let stIdx = 0;
   for (const r of stations) {
+    stIdx++;
     const isL = side === 0;
     let rail = isL ? r.L : r.R;
     const pc = pcOf(r.w);
@@ -378,8 +380,9 @@ export function turningSatin(col, P) {
     if (pts.length) {
       const q = pts[pts.length - 1], d = dist(q, rail);
       if (d > P.satin_max) {
-        const k = Math.ceil(d / (P.satin_max * 0.75)), sh = (pts.length % 4 < 2) ? 0.12 : -0.12;
-        for (let j = 1; j < k; j++) { const f = Math.min(0.95, Math.max(0.05, j / k + sh / k)); pts.push([q[0] + (rail[0] - q[0]) * f, q[1] + (rail[1] - q[1]) * f]); }
+        // passagem larga: dividir em pontos de ~3,5 mm, desencontrados em 3 fases (como o tatami)
+        const L = P.fill_len || 3.5, k = Math.max(2, Math.ceil(d / L)), ph = ((stIdx % 3) - 1) / 3;
+        for (let j = 1; j < k; j++) { const f = Math.min(0.94, Math.max(0.06, (j + ph * 0.8) / k)); pts.push([q[0] + (rail[0] - q[0]) * f, q[1] + (rail[1] - q[1]) * f]); }
       }
     }
     pts.push(rail);
