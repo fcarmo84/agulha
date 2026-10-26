@@ -126,7 +126,7 @@ export function drawDirections(canvas, info, cmds, ink) {
 }
 
 // tracos finos: desenho esbatido, partes abaixo do limite a vermelho e com um circulo a volta
-export function drawThin(canvas, info, cmds, limit = 0.8) {
+export function drawThin(canvas, info, cmds, limit = 0.8, hairRings = []) {
   const ctx = canvas.getContext('2d'), W = canvas.width, H = canvas.height;
   ctx.clearRect(0, 0, W, H);
   if (!cmds.length) return 0;
@@ -161,6 +161,15 @@ export function drawThin(canvas, info, cmds, limit = 0.8) {
     const cx = (m.x0 + m.x1) / 2, cy = (m.y0 + m.y1) / 2;
     const r = Math.max(8 * dpr, diag / 2 + 4 * dpr);
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.stroke();
+  }
+  // linhas finissimas que ficaram de fora: a roxo, com traco grosso para se verem
+  if (hairRings.length) {
+    ctx.strokeStyle = 'rgba(130,50,200,.95)'; ctx.lineWidth = 2.5 * dpr; ctx.lineJoin = 'round';
+    for (const r of hairRings) {
+      ctx.beginPath();
+      r.forEach(([x, y], j) => { const [px, py] = f(x * 10, y * 10); j ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
+      ctx.closePath(); ctx.stroke();
+    }
   }
   return marks.length;
 }

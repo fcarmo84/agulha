@@ -3,7 +3,7 @@ import { prepareLayers, colorName } from './camadas.js';
 import { digitizeGroups } from './motor.js';
 
 export function run({ shapes, P, order, enabled }, onProgress) {
-  const { groups, hairlines } = prepareLayers(shapes);
+  const { groups, hairlines, hairRings } = prepareLayers(shapes);
   const meta = groups.map((g) => ({ key: g.name || g.color.join(','), color: g.color, name: g.name || colorName(g.color) }));
   // ordem de bordado: as cores ja conhecidas na ordem pedida, as novas no fim (ordem de pintura)
   const keys = meta.map(m => m.key);
@@ -14,7 +14,7 @@ export function run({ shapes, P, order, enabled }, onProgress) {
     cmds: res.cmds,
     info: res.info.map(r => ({ grid: r.grid, labels: r.labels, color: r.color, parts: r.parts.map(p => ({ id: p.id, ang: p.ang, w: p.w, satin: p.satin, rails: p.rails })) })),
     groups: res.groups.map(g => ({ color: g.color, name: g.name })),
-    meta, seq, hairlines,
+    meta, seq, hairlines, hairRings,
   };
 }
 

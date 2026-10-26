@@ -130,15 +130,15 @@ const ringArea = (r) => { let s = 0; for (let i = 0; i < r.length; i++) { const 
 export function prepareLayers(shapes, opt = {}) {
   const overlap = opt.overlap ?? 0.35, tol = opt.mergeTol ?? 10, minW = opt.minWidth ?? 0.3;
   // linhas finissimas (ex.: contornos de 0,1 mm do Illustrator) nao se bordam: ficam de fora
-  let hairlines = 0;
+  let hairlines = 0; const hairRings = [];
   shapes = shapes.filter(s => {
     let A = 0, P = 0;
     for (const r of s.rings) { A += ringArea(r) * (Math.sign(signedArea(r)) || 1); for (let i = 0; i < r.length; i++) { const p = r[i], q = r[(i + 1) % r.length]; P += Math.hypot(q[0] - p[0], q[1] - p[1]); } }
     const w = 2 * Math.abs(A) / Math.max(P, 1e-9);
-    if (w < minW) { hairlines++; return false; }
+    if (w < minW) { hairlines++; hairRings.push(...s.rings); return false; }
     return true;
   });
-  if (!shapes.length) return { groups: [], res: 0.1, hairlines };
+  if (!shapes.length) return { groups: [], res: 0.1, hairlines, hairRings };
   // 1) cor de linha de cada forma (tons quase iguais juntam-se)
   const groups = [];
   const gid = shapes.map((s) => {
@@ -203,5 +203,5 @@ export function prepareLayers(shapes, opt = {}) {
     return { color: G.color, name: G.name, rings, exact: false };
   });
   const sorted = order.map(i => out[i]).filter(Gr => Gr.rings.length);
-  return { groups: sorted, res, hairlines };
+  return { groups: sorted, res, hairlines, hairRings };
 }

@@ -142,7 +142,7 @@ async function generate() {
     for (const m of r.meta) if (state.enabled[m.key] === undefined) state.enabled[m.key] = true;
     const avisos = (state.warnings || []).map(w => AVISOS[w]).filter(Boolean);
     const finos = r.info.flatMap(x => x.parts).filter(p => p.w > 0 && p.w < 0.8).length;
-    if (r.hairlines) avisos.push(`${r.hairlines} linhas finíssimas (menos de 0,3 mm à escala do bordado) foram ignoradas: não se conseguem bordar.`);
+    if (r.hairlines) avisos.push(`${r.hairlines} linhas finíssimas (menos de 0,3 mm à escala do bordado) foram ignoradas: não se conseguem bordar. <button type="button" class="ligacao" data-ir="finos">Ver onde estão</button>`);
     if (state.pdf && state.pdf.designs[state.design].fundo.length && !state.withFundo) avisos.push('O retângulo de fundo por trás do logótipo não é bordado (o tecido faz de fundo). Pode ativá-lo no passo 1.');
     if (finos) avisos.push(`Há ${finos} partes com traço mais fino que 0,8 mm. Podem ficar falhadas. Se possível, aumente o tamanho do bordado. <button type="button" class="ligacao" data-ir="finos">Ver onde estão</button>`);
     const nOn = r.meta.filter(m => state.enabled[m.key]).length;
@@ -218,9 +218,10 @@ function showResult(avisos) {
   $('#avisos').hidden = !avisos.length;
   $('#vista-direcoes').disabled = !state.result.info.length;
   const nFinos = state.result.info.flatMap(x => x.parts).filter(p => p.w > 0 && p.w < 0.8).length;
-  $('#vista-finos').disabled = !nFinos;
-  $('#vista-finos').textContent = nFinos ? `Traço < 0,8 mm (${nFinos})` : 'Traço < 0,8 mm';
-  if (!nFinos && state.view === 'finos') setView('bordado');
+  const nHair = state.result.hairlines || 0;
+  $('#vista-finos').disabled = !nFinos && !nHair;
+  $('#vista-finos').textContent = (nFinos || nHair) ? `Traço < 0,8 mm (${nFinos + nHair})` : 'Traço < 0,8 mm';
+  if (!nFinos && !nHair && state.view === 'finos') setView('bordado');
   draw();
 }
 
@@ -237,13 +238,13 @@ function draw() {
   const colors = state.result.groups.map(g => g.color);
   if (state.view === 'bordado') drawStitches(cv, cmds, colors, css.getPropertyValue('--tecido').trim());
   else if (state.view === 'direcoes') drawDirections(cv, state.result.info, cmds);
-  else if (state.view === 'finos') drawThin(cv, state.result.info, cmds, 0.8);
+  else if (state.view === 'finos') drawThin(cv, state.result.info, cmds, 0.8, state.result.hairRings || []);
   else drawPath(cv, cmds, css.getPropertyValue('--tinta').trim(), css.getPropertyValue('--salto').trim());
   $('#legenda').textContent = {
     bordado: 'Simulação do bordado na máquina.',
     direcoes: 'Cada cor é uma parte do desenho. Os tracinhos mostram a direção do ponto.',
     percurso: 'Percurso da agulha. A tracejado vermelho: saltos com corte de linha.',
-    finos: 'A vermelho: partes com traço mais fino que 0,8 mm (as pequenas têm um círculo à volta). A cinzento: o resto do desenho.',
+    finos: 'A vermelho: partes bordadas com traço mais fino que 0,8 mm (as pequenas têm um círculo à volta). A roxo: linhas finíssimas (< 0,3 mm) que não são bordadas. A cinzento: o resto do desenho.',
   }[state.view];
 }
 
