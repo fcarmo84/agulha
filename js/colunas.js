@@ -193,7 +193,7 @@ export function strokeColumns(rings, g, P) {
   //    colunas encontram-se em meia-esquadria (a fronteira e a bissetriz do bico).
   const pieces = [];
   for (const sg of segs) {
-    for (const pts of splitSharp(sg.pts, sg.w, rings)) pieces.push({ pts, w: sg.w, arm: sg.arm });
+    for (const q of splitSharp(sg.pts, sg.w, rings)) pieces.push({ pts: q.pts, w: sg.w, arm: sg.arm, b0: q.b0, b1: q.b1 });
   }
   _dbgK.polys = pieces.map(p => p.pts);
   _dbgK.pieces = pieces.map(p => `${p.pts.length * 0.1 | 0}mm${p.arm ? 'b' : ''}${p.through ? 't' : ''}`).join(',');
@@ -236,12 +236,13 @@ export function strokeColumns(rings, g, P) {
       }
       return best && best[1] - best[0] >= 0.1 ? best : null;
     };
-    const ext = (p0, p1) => {
+    // prolongar ate a borda; nas pontas que nascem de um bico agudo a ponta e comprida
+    const ext = (p0, p1, bico) => {
       const l = dist(p0, p1) || 1, u = [(p0[0] - p1[0]) / l, (p0[1] - p1[1]) / l], add = [];
-      for (let t = 0.1; t < s.w * 1.8 + 0.5; t += 0.1) { const q = [p0[0] + u[0] * t, p0[1] + u[1] * t]; if (!g.look(md, q[0], q[1]) && !crossRun(q, u)) break; add.push(q); }
+      for (let t = 0.1; t < s.w * (bico ? 5 : 1.8) + 0.5; t += 0.1) { const q = [p0[0] + u[0] * t, p0[1] + u[1] * t]; if (!g.look(md, q[0], q[1]) && !crossRun(q, u)) break; add.push(q); }
       return add;
     };
-    pts = [...ext(pts[0], pts[Math.min(5, pts.length - 1)]).reverse(), ...pts, ...ext(pts[pts.length - 1], pts[Math.max(0, pts.length - 6)])];
+    pts = [...ext(pts[0], pts[Math.min(5, pts.length - 1)], s.b0).reverse(), ...pts, ...ext(pts[pts.length - 1], pts[Math.max(0, pts.length - 6)], s.b1)];
     const rails = [];
     const maxS = P.satin_max * 4, step = RES / 2;
     const ray = (c, dv) => {
@@ -354,15 +355,18 @@ function splitSharp(pts, w, rings) {
       const { u1, u2 } = turn(i), l1 = Math.hypot(...u1) || 1, l2 = Math.hypot(...u2) || 1;
       let bv = [u2[0] / l2 - u1[0] / l1, u2[1] / l2 - u1[1] / l1]; const lb = Math.hypot(...bv) || 1; bv = [bv[0] / lb, bv[1] / lb];
       const hit = rayHit(rings, pts[i], bv, w * 2.5);
-      if (hit !== null) sharp = vertexAngle(rings, [pts[i][0] + bv[0] * hit, pts[i][1] + bv[1] * hit], Math.max(0.3, w * 0.6)) < VERT;
+      if (hit !== null) sharp = vertexAngle(rings, [pts[i][0] + bv[0] * hit, pts[i][1] + bv[1] * hit], Math.max(0.3, w * 1.5)) < VERT;
     }
     if (sharp) cuts.push(i);
   }
-  if (!cuts.length) return [pts];
+  if (!cuts.length) return [{ pts, b0: false, b1: false }];
+  // perto do bico o esqueleto faz um gancho para dentro da ponta: cortar ~1 largura de cada
+  // lado; depois cada traco prolonga-se a direito ate a borda (ext, no passo 6)
+  const t = Math.max(2, Math.round(w / 0.1));
   const out = []; let s = 0;
-  for (const i of cuts) { out.push(pts.slice(s, i + 1)); s = i; }
-  out.push(pts.slice(s));
-  return out.filter(p => p.length >= 3);
+  for (const i of cuts) { out.push({ pts: pts.slice(s, Math.max(s + 3, i + 1 - t)), b0: s > 0, b1: true }); s = Math.min(pts.length - 3, i + t); }
+  out.push({ pts: pts.slice(s), b0: true, b1: false });
+  return out.filter(p => p.pts.length >= 3);
 }
 
 function dilateN(m, W, H, n) {
