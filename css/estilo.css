@@ -140,3 +140,4 @@ select { font: inherit; font-weight: 400; color: var(--texto); background: var(-
 .amostra.pequena { display: inline-block; width: 16px; height: 16px; vertical-align: -3px; }
 
 .ligacao { background: none; border: 0; padding: 0; color: var(--indigo); font-weight: 700; text-decoration: underline; cursor: pointer; font-size: inherit; }
+.campos .bordar { display: flex; align-items: center; gap: 8px; font-size: 15px; cursor: pointer; grid-column: 1 / -1; }

@@ -306,7 +306,7 @@ export function strokeColumns(rings, g, P) {
     const ws = rails.map(r => r.w).sort((x, y) => x - y), wmed = ws[ws.length >> 1];
     // largura muito irregular (cabeca de seta, triangulo): nao e um traco
     const w90 = ws[Math.floor(ws.length * 0.9)];
-    if (w90 > 2.5 && w90 > 1.8 * wmed) { irregular = true; return; }
+    if ((w90 > 2.5 && w90 > 1.8 * wmed) || (P.pequeno && w90 > 2.5)) { irregular = true; return; }
     const col = { rails, wmed, loop: false };
     const blocks = [];
     const ul = turningUnderlay(col, P); if (ul && ul.length > 1) blocks.push({ pts: ul, kind: 'base', part: id });

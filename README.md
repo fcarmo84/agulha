@@ -31,6 +31,17 @@ Para quem domina o Corel mas perde horas no software de bordado a acertar pontos
 - **PDF do Corel e do Illustrator:** cores CMYK, RGB, ICC, Lab e cores spot (Pantone, com o nome), máscaras de recorte.
 - **Enchimentos largos:** uma só direção por forma (sem costuras); o cetim acompanha os traços estreitos.
 
+## Peças pequenas
+
+Para bordados pequenos (por exemplo um logótipo de 9 cm para um bolso), ligue **Peça pequena (menos de 4 cm de altura)**. Com esta opção:
+
+- a análise é feita numa grelha 2,5× mais fina (aberturas e riscas de 0,5 mm ficam no sítio certo);
+- a compensação de repuxo nas pontas do cetim é muito menor, para não fechar aberturas estreitas;
+- num enchimento com aberturas (riscas, anéis), as filas do tatami ficam atravessadas às bordas das aberturas, sem degraus;
+- nenhum ponto atravessa uma abertura: se for preciso passar para o outro lado, faz salto com corte.
+
+Com a opção desligada o resultado é exatamente o mesmo de antes.
+
 ## Limitações atuais
 
 - Só formas **preenchidas**; contornos sem preenchimento e imagens (bitmap) são ignorados.

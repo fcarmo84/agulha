@@ -433,7 +433,7 @@ function satin(rows, R, P) {
     };
     blk.forEach(([i, k], idx) => {
       const v = rows[i][0]; const [u0, u1, e0, e1] = rows[i][1][k];
-      const w = u1 - u0, pc = Math.min(0.3, Math.max(0.1, 0.1 + 0.04 * w));
+      const w = u1 - u0, pc = P.pequeno ? Math.min(0.08, 0.02 * w) : Math.min(0.3, Math.max(0.1, 0.1 + 0.04 * w));
       add(toXY(R, u0 - (e0 ? pc : 0), v), idx);
       add(toXY(R, u1 + (e1 ? pc : 0), v), idx);
     });
@@ -504,7 +504,8 @@ export function digitizeRegion(rings, P, info) {
   // resolucao da analise: 0.1 mm em formas normais, mais grossa em areas grandes (~1.2 Mpx no maximo)
   let bx0 = Infinity, bx1 = -Infinity, by0 = Infinity, by1 = -Infinity;
   for (const [x, y] of rings[0]) { if (x < bx0) bx0 = x; if (x > bx1) bx1 = x; if (y < by0) by0 = y; if (y > by1) by1 = y; }
-  const g = new Grid(rings, 6, Math.max(RES, Math.sqrt((bx1 - bx0) * (by1 - by0) / 1.2e6)));
+  // peca pequena: grelha mais fina (tracos de 0,5 mm precisam de mais de 5 pixeis)
+  const g = new Grid(rings, 6, Math.max(P.pequeno ? 0.04 : RES, Math.sqrt((bx1 - bx0) * (by1 - by0) / 1.2e6)));
   const { W, H } = g;
   // formas compactas (penas de seta, gotas, pontas largas): nao sao tracos; o cetim que
   // acompanha o traco faria leques e camadas por cima. Medida: comprimento / largura media.
@@ -564,7 +565,10 @@ export function digitizeRegion(rings, P, info) {
     const m = new Uint8Array(W * H);
     for (const t of tat) for (let i = 0; i < m.length; i++) if (t.m[i]) { m[i] = 1; L[i] = main.pid; }
     const mp = tat.length > 1 ? maskPoints(g, m) : main.mp;
-    work.push({ pid: main.pid, a: main.a, m, mp, satin: false, wm: Math.max(...tat.map(t => t.wm)) });
+    // peca pequena com aberturas (riscas, anel): filas atravessadas as bordas das aberturas;
+    // uma borda quase paralela as filas sai em escada
+    const a = P.pequeno && rings.length > 1 ? crossAngle(rings.slice(1), main.a) : main.a;
+    work.push({ pid: main.pid, a, m, mp, satin: false, wm: Math.max(...tat.map(t => t.wm)) });
   }
   // 2.a passagem: pontos
   for (const c of work) {
@@ -590,7 +594,50 @@ export function digitizeRegion(rings, P, info) {
     parts.push({ id: pid, ang: a, mask: m, blocks, satin: isSatin, w: wm });
   }
   if (info) info.push({ grid: g, labels: L, parts });
-  return sequence(parts, g, P);
+  return P.pequeno ? noGaps(sequence(parts, g, P), g) : sequence(parts, g, P);
+}
+
+// direcao das filas o mais afastada possivel das bordas compridas dos buracos (mod 180)
+function crossAngle(holes, a0) {
+  const E = [];
+  for (const r of holes) for (let i = 0; i < r.length; i++) {
+    const p = r[i], q = r[(i + 1) % r.length], L = dist(p, q);
+    if (L > 0.4) E.push([((Math.atan2(q[1] - p[1], q[0] - p[0]) / D2R) % 180 + 180) % 180, L]);
+  }
+  if (!E.length) return a0;
+  let best = a0, bs = -1;
+  for (let a = 0; a < 180; a += 5) {
+    let mn = 90, wsum = 0;
+    for (const [e, L] of E) { let d = Math.abs(a - e) % 180; d = Math.min(d, 180 - d); wsum += L * d; if (d < mn) mn = d; }
+    const sc = mn * 1000 + wsum; if (sc > bs) { bs = sc; best = a; }
+  }
+  return best;
+}
+
+// peca pequena: um ponto que atravesse uma abertura (risca branca, anel) parte o bloco;
+// a passagem passa a ser um salto com corte em vez de linha por cima do tecido
+function noGaps(blocks, g) {
+  const out = [];
+  const crosses = (p, q) => {
+    const d = dist(p, q); if (d < 0.3) return false;
+    const n = Math.ceil(d / (g.res / 2));
+    for (let k = 1; k < n; k++) {
+      const t = k / n; if (t * d < 0.12 || (1 - t) * d < 0.12) continue;
+      if (!g.look(g.mask, p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t)) return true;
+    }
+    return false;
+  };
+  for (const b of blocks) {
+    let cur = [b.pts[0]], first = true;
+    for (let i = 1; i < b.pts.length; i++) {
+      if (crosses(b.pts[i - 1], b.pts[i])) {
+        if (cur.length > 1) out.push({ ...b, pts: cur, connect: first ? b.connect : false });
+        cur = [b.pts[i]]; first = false;
+      } else cur.push(b.pts[i]);
+    }
+    if (cur.length > 1) out.push({ ...b, pts: cur, connect: first ? b.connect : false });
+  }
+  return out;
 }
 
 function travelOk(g, sewn, a, b) {

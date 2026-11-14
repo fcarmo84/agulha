@@ -132,7 +132,7 @@ async function generate() {
     const T = (rs) => rs.map(r => r.map(([x, y]) => [(x - cx) * k, (y - cy) * k]));
     const shapes = state.shapes.map(s => ({ color: s.color, name: s.name || null, rings: T(s.rings), clips: (s.clips || []).map(T) }));
     const T0 = TECIDOS[$('#tecido').value] || {}, mx = parseFloat($('#pontomax').value) || 7;
-    const P = { ...T0, max_stitch: mx, satin_max: Math.min(T0.satin_max ?? Infinity, mx - 1) };
+    const P = { ...T0, max_stitch: mx, satin_max: Math.min(T0.satin_max ?? Infinity, mx - 1), pequeno: $('#pequeno').checked };
     const t0 = performance.now();
     const r = await compute({ shapes, P, order: state.order, enabled: state.enabled },
       (p) => setStatus(`A calcular pontos e direções… ${Math.round(p * 100)} %`));
@@ -296,6 +296,7 @@ $('#altura').addEventListener('input', () => {
   clearTimeout(deb); deb = setTimeout(generate, 600);
 });
 $('#tecido').addEventListener('change', generate);
+$('#pequeno').addEventListener('change', generate);
 $('#pontomax').addEventListener('change', generate);
 $('#cores').addEventListener('click', (e) => {
   const b = e.target.closest('[data-mover]'); if (!b) return;
