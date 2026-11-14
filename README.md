@@ -22,7 +22,7 @@ Para quem domina o Corel mas perde horas no software de bordado a acertar pontos
 
 - **Cetim rotativo nas curvas:** em traços curvos sem cruzamentos (S, C, O, D pequenos…) o ponto acompanha a curva; a densidade é medida pelo lado de fora e o lado de dentro leva pontos curtos alternados.
 - **Direções do ponto:** letras com pernas e cruzamentos (N, E, A…) são divididas em partes, cada uma com o ponto atravessado ao traço.
-- **Bicos agudos** (topo do A, V, M): as duas pernas encontram-se em meia-esquadria, sem leque, para a linha não se amontoar no vértice. Cantos a ~90° (E, L, F) continuam em leque.
+- **Bicos agudos** (topo do A, V, M): as duas pernas encontram-se em meia-esquadria, sem leque, para a linha não se amontoar no vértice. Cantos a ~90° (E, L, F) continuam em leque; chanfros a 45° (números octogonais) seguem a curva sem leque.
 - **Formas largas e curtas** (penas e cabeças de seta, gotas): tatami numa só direção, todas com a mesma cobertura.
 - **Tipo de ponto:** cetim nas partes estreitas, tatami (enchimento) nas largas; cetim dividido acima de 6 mm.
 - **Durabilidade:** nenhum ponto acima do ponto máximo escolhido (6, 7, 8 ou 10 mm; 7 por defeito), ponto de base (underlay), compensação de repuxo e remates.

@@ -143,10 +143,10 @@ export function strokeColumns(rings, g, P) {
     return [{ ...s, b: mid, pts: s.pts.slice(0, k + 1) }, { ...s, a: mid, pts: s.pts.slice(k) }];
   });
   // 3) juncoes em T / cruzamentos: o traco que continua a direito passa; os bracos sao aparados
-  const dir = (s, atStart) => {
+  const dir = (s, atStart, f = 2.5) => {
     // direcao medida fora da zona deformada da juncao (de ~0,8 a ~2,5 larguras)
     const p = atStart ? s.pts : s.pts.slice().reverse(), n = p.length - 1;
-    const k2 = Math.min(n, Math.max(4, Math.round(2.5 * Math.max(0.8, s.w) / 0.1))), k1 = Math.min(Math.round(0.8 * s.w / 0.1), k2 >> 1);
+    const k2 = Math.min(n, Math.max(4, Math.round(f * Math.max(0.8, s.w) / 0.1))), k1 = Math.min(Math.round(0.8 * s.w / 0.1), k2 >> 1);
     const v = [p[k2][0] - p[k1][0], p[k2][1] - p[k1][1]], L = Math.hypot(...v) || 1; return [v[0] / L, v[1] / L];
   };
   const junctions = [...degree()].filter(([id, k]) => k >= 3 && !nodes[id].end).map(([id]) => id);
@@ -154,8 +154,12 @@ export function strokeColumns(rings, g, P) {
     const at = segs.map((s, i) => ({ s, i, start: s.a === jn, end: s.b === jn })).filter(x => x.start || x.end);
     let best = null;
     for (let i = 0; i < at.length; i++) for (let j = i + 1; j < at.length; j++) {
-      const d1 = dir(at[i].s, at[i].start), d2 = dir(at[j].s, at[j].start);
-      const ang = Math.acos(Math.max(-1, Math.min(1, -(d1[0] * d2[0] + d1[1] * d2[1])))) * 180 / Math.PI; // 0 = continua a direito
+      // angulo medido a duas distancias da juncao (tracos curtos que curvam logo: cauda do 9)
+      let ang = 180;
+      for (const f of [1.5, 2.5]) {
+        const d1 = dir(at[i].s, at[i].start, f), d2 = dir(at[j].s, at[j].start, f);
+        ang = Math.min(ang, Math.acos(Math.max(-1, Math.min(1, -(d1[0] * d2[0] + d1[1] * d2[1])))) * 180 / Math.PI); // 0 = continua a direito
+      }
       const rw = Math.max(at[i].s.w, at[j].s.w) / Math.max(1e-6, Math.min(at[i].s.w, at[j].s.w));
       if (at[i].s === at[j].s || at[i].s.arm || at[j].s.arm) continue; // laco, ou braco ja aparado noutra juncao
       if (ang < 35 && rw < 1.7 && (!best || ang < best.ang)) best = { ang, i, j };
@@ -191,6 +195,7 @@ export function strokeColumns(rings, g, P) {
   for (const sg of segs) {
     for (const pts of splitSharp(sg.pts, sg.w, rings)) pieces.push({ pts, w: sg.w, arm: sg.arm });
   }
+  _dbgK.polys = pieces.map(p => p.pts);
   _dbgK.pieces = pieces.map(p => `${p.pts.length * 0.1 | 0}mm${p.arm ? 'b' : ''}${p.through ? 't' : ''}`).join(',');
   _dbgK.junctions = junctions.length;
   if (!pieces.length || pieces.length > 20) { _why = 'pecas'; return null; }
@@ -259,6 +264,9 @@ export function strokeColumns(rings, g, P) {
         const { u1, u2 } = turnAt(i), l1 = Math.hypot(...u1) || 1, l2 = Math.hypot(...u2) || 1;
         let bv = [u2[0] / l2 - u1[0] / l1, u2[1] / l2 - u1[1] / l1]; const lb = Math.hypot(...bv) || 1; bv = [bv[0] / lb, bv[1] / lb];
         const hit = rayHit(rings, pts[i], bv, s.w * 2) ?? s.w / 2;
+        // so ha leque se o vertice de dentro for um canto a serio (E, L: ~90 graus);
+        // chanfros a 45 graus (numeros octogonais) seguem a curva sem leque
+        if (vertexAngle(rings, [pts[i][0] + bv[0] * hit, pts[i][1] + bv[1] * hit], Math.max(0.3, s.w * 0.6)) > 115) continue;
         corners.push({ i, pivot: [pts[i][0] + bv[0] * hit, pts[i][1] + bv[1] * hit], left: u1[0] * u2[1] - u1[1] * u2[0] > 0, zone: Math.round(Math.max(0.5, s.w * 0.7) / 0.1) });
       }
     }
@@ -278,8 +286,10 @@ export function strokeColumns(rings, g, P) {
       if (cn) {
         // leque: lado de dentro fixo no vertice; lado de fora na direcao vertice -> eixo
         const dv0 = [c[0] - cn.pivot[0], c[1] - cn.pivot[1]], ld = Math.hypot(...dv0);
-        if (ld > 0.05) {
-          const dv = [dv0[0] / ld, dv0[1] / ld], o = ray(c, dv);
+        const dv = ld > 0.05 ? [dv0[0] / ld, dv0[1] / ld] : null, o = dv && ray(c, dv);
+        // o raio do leque so pode atravessar o traco (num canto, o lado de fora fica a
+        // menos de ~1,5 larguras); se seguir ao longo do traco, este ponto nao e leque
+        if (dv && o.s <= s.w * 1.5) {
           const outer = [c[0] + dv[0] * o.s, c[1] + dv[1] * o.s];
           const inL = cn.left; // a virar a esquerda: o lado de dentro e o L (+n)
           rails.push({ c, L: inL ? cn.pivot : outer, R: inL ? outer : cn.pivot, w: ld + o.s, n, t: [tx / l, ty / l], eL: inL ? true : o.edge, eR: inL ? o.edge : true, fan: true });
