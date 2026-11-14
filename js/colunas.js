@@ -132,10 +132,22 @@ export function strokeColumns(rings, g, P) {
     return { a: b.a, b: b.b, pts, w: ws[ws.length >> 1] || RES * 2 };
   }).filter(s => s.pts.length >= 3);
 
+  // laco preso numa juncao (bojo do P, do R, do 9...): partir em dois no ponto mais longe
+  // da juncao, para a juncao ver tres pontas (a haste continua a direito, o bojo e um braco)
+  segs = segs.flatMap(s => {
+    if (s.a !== s.b || s.b < 0 || nodes[s.a].end) return [s];
+    const p0 = s.pts[0]; let k = 0, bd = -1;
+    s.pts.forEach((q, i) => { const d = dist(q, p0); if (d > bd) { bd = d; k = i; } });
+    if (k < 3 || k > s.pts.length - 4) return [s];
+    const mid = nodes.length; nodes.push({ id: mid, members: [], end: false, virt: true });
+    return [{ ...s, b: mid, pts: s.pts.slice(0, k + 1) }, { ...s, a: mid, pts: s.pts.slice(k) }];
+  });
   // 3) juncoes em T / cruzamentos: o traco que continua a direito passa; os bracos sao aparados
   const dir = (s, atStart) => {
-    const p = atStart ? s.pts : s.pts.slice().reverse(), k = Math.min(p.length - 1, Math.max(4, Math.round(Math.max(1, s.w) / 0.1)));
-    const v = [p[k][0] - p[0][0], p[k][1] - p[0][1]], L = Math.hypot(...v) || 1; return [v[0] / L, v[1] / L];
+    // direcao medida fora da zona deformada da juncao (de ~0,8 a ~2,5 larguras)
+    const p = atStart ? s.pts : s.pts.slice().reverse(), n = p.length - 1;
+    const k2 = Math.min(n, Math.max(4, Math.round(2.5 * Math.max(0.8, s.w) / 0.1))), k1 = Math.min(Math.round(0.8 * s.w / 0.1), k2 >> 1);
+    const v = [p[k2][0] - p[k1][0], p[k2][1] - p[k1][1]], L = Math.hypot(...v) || 1; return [v[0] / L, v[1] / L];
   };
   const junctions = [...degree()].filter(([id, k]) => k >= 3 && !nodes[id].end).map(([id]) => id);
   for (const jn of junctions) {
@@ -145,6 +157,7 @@ export function strokeColumns(rings, g, P) {
       const d1 = dir(at[i].s, at[i].start), d2 = dir(at[j].s, at[j].start);
       const ang = Math.acos(Math.max(-1, Math.min(1, -(d1[0] * d2[0] + d1[1] * d2[1])))) * 180 / Math.PI; // 0 = continua a direito
       const rw = Math.max(at[i].s.w, at[j].s.w) / Math.max(1e-6, Math.min(at[i].s.w, at[j].s.w));
+      if (at[i].s === at[j].s || at[i].s.arm || at[j].s.arm) continue; // laco, ou braco ja aparado noutra juncao
       if (ang < 35 && rw < 1.7 && (!best || ang < best.ang)) best = { ang, i, j };
     }
     if (!best) continue;
@@ -163,8 +176,21 @@ export function strokeColumns(rings, g, P) {
     segs = segs.filter(s => s !== X.s && s !== Y.s); segs.push(merged);
   }
 
-  // 4) cada traco fica inteiro; os cantos vivos sao feitos em leque (ver passo 6)
-  const pieces = segs.map(sg => ({ pts: sg.pts, w: sg.w, arm: sg.arm }));
+  // os lacos partidos que nenhuma juncao usou voltam a ser um so traco
+  for (const n of nodes) if (n.virt) {
+    const two = segs.filter(x => x.a === n.id || x.b === n.id); if (two.length !== 2 || two.some(x => x.through)) continue;
+    const [x, y] = two, px = x.b === n.id ? x.pts : x.pts.slice().reverse(), py = y.a === n.id ? y.pts : y.pts.slice().reverse();
+    segs = segs.filter(o => o !== x && o !== y);
+    segs.push({ ...x, a: x.b === n.id ? x.a : x.b, b: y.a === n.id ? y.b : y.a, pts: [...px, ...py.slice(1)], w: Math.max(x.w, y.w), arm: x.arm || y.arm, through: x.through || y.through });
+  }
+  // 4) cada traco fica inteiro; os cantos vivos sao feitos em leque (ver passo 6).
+  //    Bicos agudos (topo do A, V, M, pontas de seta): o leque juntaria todos os pontos
+  //    no vertice de dentro e amontoava linha; ai o traco divide-se em dois e as duas
+  //    colunas encontram-se em meia-esquadria (a fronteira e a bissetriz do bico).
+  const pieces = [];
+  for (const sg of segs) {
+    for (const pts of splitSharp(sg.pts, sg.w, rings)) pieces.push({ pts, w: sg.w, arm: sg.arm });
+  }
   _dbgK.pieces = pieces.map(p => `${p.pts.length * 0.1 | 0}mm${p.arm ? 'b' : ''}${p.through ? 't' : ''}`).join(',');
   _dbgK.junctions = junctions.length;
   if (!pieces.length || pieces.length > 20) { _why = 'pecas'; return null; }
@@ -187,7 +213,7 @@ export function strokeColumns(rings, g, P) {
 
   // 6) coluna de cetim por traco; os carris param na borda do vetor OU na emenda com o vizinho
   const ovPx = Math.max(1, Math.round(0.15 / RES));
-  const parts = [], cov = new Uint8Array(N);
+  const parts = [], cov = new Uint8Array(N); let irregular = false;
   pieces.forEach((s, k) => {
     const id = k + 1;
     const m = new Uint8Array(N); for (let i = 0; i < N; i++) if (L[i] === id) m[i] = 1;
@@ -267,17 +293,66 @@ export function strokeColumns(rings, g, P) {
     if (rails.length < 3) return;
     for (let i = 0; i + 1 < rails.length; i++) fillQuad(cov, g, [rails[i].L, rails[i + 1].L, rails[i + 1].R, rails[i].R]);
     const ws = rails.map(r => r.w).sort((x, y) => x - y), wmed = ws[ws.length >> 1];
+    // largura muito irregular (cabeca de seta, triangulo): nao e um traco
+    const w90 = ws[Math.floor(ws.length * 0.9)];
+    if (w90 > 2.5 && w90 > 1.8 * wmed) { irregular = true; return; }
     const col = { rails, wmed, loop: false };
     const blocks = [];
     const ul = turningUnderlay(col, P); if (ul && ul.length > 1) blocks.push({ pts: ul, kind: 'base', part: id });
     blocks.push({ pts: turningSatin(col, P), kind: 'cetim', part: id });
     parts.push({ id, ang: 0, mask: m, blocks, satin: true, w: wmed, curva: true, rails });
   });
+  if (irregular) { _why = 'largura irregular'; return null; }
   // 7) a forma tem de ficar bem coberta; senao fica o metodo antigo
   let inS = 0, cv = 0; for (let i = 0; i < N; i++) if (g.mask[i]) { inS++; if (cov[i]) cv++; }
   const minCov = skW < 1.5 ? 0.955 : 0.975; // em tracos finos o arredondamento aos pixeis pesa mais
   if (!parts.length || cv / inS < minCov) { _why = 'cobertura ' + (cv / Math.max(1, inS)).toFixed(3); return null; }
   return { parts, labels: L };
+}
+
+// divide a polilinha nos bicos agudos (topo do A, V, M, pontas de seta...).
+// Um canto e "bico" quando o traco vira muito (> BICO graus) ou quando o vertice do lado
+// de dentro do canto e agudo (< VERT graus): ai um leque juntaria todos os pontos nesse
+// vertice. Os cantos a ~90 graus (E, L, F) continuam em leque.
+export const BICO = 110, VERT = 65;
+function vertexAngle(rings, q, lim) {
+  let best = null, bd = lim;
+  for (const r of rings) for (let i = 0; i < r.length; i++) { const d = dist(r[i], q); if (d < bd) { bd = d; best = [r, i]; } }
+  if (!best) return 180;
+  const [r, i] = best, n = r.length, v = r[i];
+  let j = (i + n - 1) % n, k = (i + 1) % n, g = 0;
+  while (dist(r[j], v) < 0.08 && g++ < n) j = (j + n - 1) % n;
+  g = 0; while (dist(r[k], v) < 0.08 && g++ < n) k = (k + 1) % n;
+  const a = [r[j][0] - v[0], r[j][1] - v[1]], b = [r[k][0] - v[0], r[k][1] - v[1]];
+  const c = (a[0] * b[0] + a[1] * b[1]) / ((Math.hypot(...a) * Math.hypot(...b)) || 1);
+  return Math.acos(Math.max(-1, Math.min(1, c))) * 180 / Math.PI;
+}
+function splitSharp(pts, w, rings) {
+  const h = Math.max(3, Math.round(Math.max(0.6, w * 0.6) / 0.1));
+  const turn = (i) => {
+    const a = pts[Math.max(0, i - h)], b = pts[i], c = pts[Math.min(pts.length - 1, i + h)];
+    const u1 = [b[0] - a[0], b[1] - a[1]], u2 = [c[0] - b[0], c[1] - b[1]];
+    let d = Math.abs(Math.atan2(u2[1], u2[0]) - Math.atan2(u1[1], u1[0])); if (d > Math.PI) d = 2 * Math.PI - d;
+    return { deg: d * 180 / Math.PI, u1, u2 };
+  };
+  const cuts = [];
+  for (let i = h; i < pts.length - h; i++) {
+    const t = turn(i).deg;
+    if (t <= 40 || t < turn(i - 1).deg || t < turn(i + 1).deg || (cuts.length && i - cuts[cuts.length - 1] <= 2 * h)) continue;
+    let sharp = t > BICO;
+    if (!sharp) {
+      const { u1, u2 } = turn(i), l1 = Math.hypot(...u1) || 1, l2 = Math.hypot(...u2) || 1;
+      let bv = [u2[0] / l2 - u1[0] / l1, u2[1] / l2 - u1[1] / l1]; const lb = Math.hypot(...bv) || 1; bv = [bv[0] / lb, bv[1] / lb];
+      const hit = rayHit(rings, pts[i], bv, w * 2.5);
+      if (hit !== null) sharp = vertexAngle(rings, [pts[i][0] + bv[0] * hit, pts[i][1] + bv[1] * hit], Math.max(0.3, w * 0.6)) < VERT;
+    }
+    if (sharp) cuts.push(i);
+  }
+  if (!cuts.length) return [pts];
+  const out = []; let s = 0;
+  for (const i of cuts) { out.push(pts.slice(s, i + 1)); s = i; }
+  out.push(pts.slice(s));
+  return out.filter(p => p.length >= 3);
 }
 
 function dilateN(m, W, H, n) {

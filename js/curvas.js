@@ -34,6 +34,29 @@ export function thin(mask, W, H) {
       if (del.length) changed = true;
     }
   }
+  // o Zhang-Suen deixa as diagonais em escada com 2 pixeis de espessura (pixeis com 3-4
+  // vizinhos); isso parecia uma juncao e o traco perdia-se. Retira os pixeis cuja saida
+  // nao parte nem liga nada (os vizinhos continuam todos ligados entre si).
+  const ring = [[-1, -1], [-1, 0], [-1, 1], [0, 1], [1, 1], [1, 0], [1, -1], [0, -1]];
+  for (let pass = 0; pass < 3; pass++) {
+    let any = false;
+    for (let r = 1; r < H - 1; r++) for (let c = 1; c < W - 1; c++) {
+      const i = r * W + c; if (!m[i]) continue;
+      const nb = ring.filter(([dr, dc]) => m[(r + dr) * W + c + dc]);
+      if (nb.length < 3) continue;
+      // componentes 8-ligadas entre os vizinhos
+      const seen = new Array(nb.length).fill(false); let comp = 0;
+      for (let k = 0; k < nb.length; k++) {
+        if (seen[k]) continue; comp++; const st = [k]; seen[k] = true;
+        while (st.length) { const a = nb[st.pop()]; nb.forEach((b, j) => { if (!seen[j] && Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1])) === 1) { seen[j] = true; st.push(j); } }); }
+      }
+      if (comp !== 1) continue;
+      // nao abrir buracos: so se algum vizinho 4-ligado estiver vazio
+      if (m[i - W] && m[i + W] && m[i - 1] && m[i + 1]) continue;
+      m[i] = 0; any = true;
+    }
+    if (!any) break;
+  }
   return m;
 }
 

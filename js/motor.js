@@ -11,7 +11,7 @@ export const PARAM = {
   satin_spacing: 0.30,       // mm entre pontas do mesmo lado, cetim largo (> 2,5 mm), como no DG17 feito a mao
   satin_spacing_medio: 0.35, // 1,2 a 2,5 mm
   satin_spacing_fino: 0.40,  // < 1,2 mm (texto pequeno)
-  fill_spacing: 0.42,
+  fill_spacing: 0.38,        // tatami: 0,42 deixava ver o tecido entre filas
   fill_len: 3.5,
   run_len: 2.0,
   angle_step: 15,
@@ -506,8 +506,16 @@ export function digitizeRegion(rings, P, info) {
   for (const [x, y] of rings[0]) { if (x < bx0) bx0 = x; if (x > bx1) bx1 = x; if (y < by0) by0 = y; if (y > by1) by1 = y; }
   const g = new Grid(rings, 6, Math.max(RES, Math.sqrt((bx1 - bx0) * (by1 - by0) / 1.2e6)));
   const { W, H } = g;
+  // formas compactas (penas de seta, gotas, pontas largas): nao sao tracos; o cetim que
+  // acompanha o traco faria leques e camadas por cima. Medida: comprimento / largura media.
+  let Ar = 0, per = 0;
+  rings.forEach((r, k) => { let s = 0; for (let i = 0; i < r.length; i++) { const p = r[i], q = r[(i + 1) % r.length]; s += p[0] * q[1] - q[0] * p[1]; per += Math.hypot(q[0] - p[0], q[1] - p[1]); } Ar += (k === 0 ? 1 : -1) * Math.abs(s / 2); });
+  const wMean = 2 * Ar / Math.max(per, 1e-6), slender = Ar / Math.max(wMean * wMean, 1e-9);
+  const traco = wMean < 1.6 || slender >= 7;
+  // letras com pernas: tracos largos (> 2,5 mm) so se a forma for bem comprida (cabeca de seta nao)
+  const tracoLetra = wMean < 1.6 || slender >= (wMean > 2.5 ? 12 : 7);
   // 1) traco curvo simples (S, C, O...): cetim rotativo que acompanha a curva
-  if (P.curvas !== false) {
+  if (P.curvas !== false && traco) {
     const col = turningColumn(rings, g, P);
     if (col) {
       const blocks = [];
@@ -520,7 +528,7 @@ export function digitizeRegion(rings, P, info) {
     }
   }
   // 2) letra com pernas e juncoes (E, N, A...): um traco = uma coluna de cetim, cantos em meia-esquadria
-  if (P.tracos !== false) {
+  if (P.tracos !== false && tracoLetra) {
     const sc = strokeColumns(rings, g, P);
     if (sc) {
       if (info) info.push({ grid: g, labels: sc.labels, parts: sc.parts });
@@ -543,7 +551,9 @@ export function digitizeRegion(rings, P, info) {
     const pr = scan(rings, a, 0.5, 0, [ea[2], ea[3]]);
     const Wd = []; for (const [, ps] of cutRows(pr.rows, pr.R, g, m, 0.25, ea)) for (const p of ps) Wd.push(p[1] - p[0]);
     if (!Wd.length) Wd.push(0);
-    cand.push({ pid, a, m, mp, area, satin: percentile(Wd, 90) <= P.satin_max, wm: median(Wd) });
+    // formas compactas (penas, cabecas de seta): sempre tatami, para todas as pecas do mesmo
+    // desenho ficarem com a mesma cobertura (cetim numa e tatami noutra ve-se a diferenca)
+    cand.push({ pid, a, m, mp, area, satin: percentile(Wd, 90) <= P.satin_max && (traco || median(Wd) < 2), wm: median(Wd) });
   }
   // as partes de enchimento (tatami) da mesma forma juntam-se numa so, com uma so direcao:
   // num enchimento largo a direcao nao precisa de seguir o traco e assim nao ha costuras
